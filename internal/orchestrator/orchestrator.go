@@ -18,6 +18,9 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
@@ -68,9 +71,59 @@ const (
 	SignalFinished = "finished"
 )
 
+// RunInput starts a run's workflow. RunID and Timeouts drive it; Run and
+// Deadlines are there so the Temporal UI shows what the run is (Timeouts are
+// nanoseconds on the wire, Deadlines the same as text).
 type RunInput struct {
-	RunID    string
-	Timeouts Timeouts
+	RunID     string
+	Timeouts  Timeouts
+	Run       *RunInfo          `json:"run,omitempty"`
+	Deadlines map[string]string `json:"deadlines,omitempty"`
+}
+
+// RunInfo describes a run for people reading Temporal.
+type RunInfo struct {
+	RunID       string `json:"run_id"`
+	Tenant      string `json:"tenant"`
+	Stack       string `json:"stack"`
+	BU          string `json:"business_unit"`
+	Environment string `json:"environment"`
+	Operation   string `json:"operation"`
+	Status      string `json:"status,omitempty"`
+	RequestedBy string `json:"requested_by,omitempty"`
+	Origin      string `json:"origin,omitempty"` // pull request, live -> code from run ...
+	Link        string `json:"link,omitempty"`
+}
+
+// Signal is the payload of planned, approved and finished: the run's status
+// at that moment. (Workflows started before it carried a bare boolean.)
+type Signal struct {
+	Status           string `json:"status"`
+	AwaitingApproval *bool  `json:"awaiting_approval,omitempty"`
+}
+
+// readSignal decodes a signal payload: a Signal, or the boolean older
+// workflows were sent (awaiting approval for planned).
+func readSignal(raw json.RawMessage) (status string, awaiting bool) {
+	var b bool
+	if json.Unmarshal(raw, &b) == nil {
+		return "", b
+	}
+	var sg Signal
+	json.Unmarshal(raw, &sg)
+	return sg.Status, sg.AwaitingApproval != nil && *sg.AwaitingApproval
+}
+
+var statusText = map[string]string{
+	"no_changes": "no changes", "policy_failed": "blocked by policy", "planned": "planned", "apply_queued": "approved",
+	"applied": "applied", "failed": "failed", "discarded": "discarded", "no_drift": "no drift", "drifted": "drift found", "cancelled": "cancelled",
+}
+
+func describeStatus(st string) string {
+	if t, ok := statusText[st]; ok {
+		return t
+	}
+	return strings.ReplaceAll(st, "_", " ")
 }
 
 // RunLifecycle follows one run from queued to a terminal status.
@@ -85,6 +138,7 @@ func RunLifecycle(ctx workflow.Context, in RunInput) (string, error) {
 
 	// wait blocks for one of the given signals or a timer; it returns the name
 	// of what fired ("timeout" for the timer).
+	status := ""
 	wait := func(d time.Duration, chans map[string]workflow.ReceiveChannel) (string, bool) {
 		tctx, cancel := workflow.WithCancel(ctx)
 		defer cancel()
@@ -93,14 +147,25 @@ func RunLifecycle(ctx workflow.Context, in RunInput) (string, error) {
 		for name, ch := range chans {
 			name, ch := name, ch
 			sel.AddReceive(ch, func(c workflow.ReceiveChannel, _ bool) {
-				var v bool
-				c.Receive(ctx, &v)
-				got, payload = name, v
+				var raw json.RawMessage
+				c.Receive(ctx, &raw)
+				var st string
+				st, payload = readSignal(raw)
+				got = name
+				if st != "" {
+					status = st
+				}
 			})
 		}
 		sel.AddFuture(workflow.NewTimer(tctx, d), func(workflow.Future) {})
 		sel.Select(ctx)
 		return got, payload
+	}
+	done := func(fallback string) string {
+		if status == "" {
+			return fallback
+		}
+		return describeStatus(status)
 	}
 	expire := func(from []string, to, reason string) (string, error) {
 		var moved bool
@@ -116,23 +181,23 @@ func RunLifecycle(ctx workflow.Context, in RunInput) (string, error) {
 	case "timeout":
 		return expire([]string{"queued", "planning"}, "failed", "runner stopped reporting while planning")
 	case SignalFinished:
-		return "finished", nil
+		return done("finished"), nil
 	}
 	if !awaiting {
-		return "planned without approval needed", nil
+		return "plan finished: " + done("nothing to approve"), nil
 	}
 	got, _ = wait(in.Timeouts.Approval, map[string]workflow.ReceiveChannel{SignalApproved: approved, SignalFinished: finished})
 	switch got {
 	case "timeout":
 		return expire([]string{"planned"}, "discarded", "plan expired before approval")
 	case SignalFinished:
-		return "discarded", nil
+		return done("discarded"), nil
 	}
 	got, _ = wait(in.Timeouts.Applying, map[string]workflow.ReceiveChannel{SignalFinished: finished})
 	if got == "timeout" {
 		return expire([]string{"apply_queued", "applying"}, "failed", "apply did not finish in time")
 	}
-	return "applied or failed", nil
+	return done("applied or failed"), nil
 }
 
 // ---- activities ----
@@ -155,6 +220,8 @@ type Temporal struct {
 	taskQueue string
 	timeouts  Timeouts
 	log       func(msg string, args ...any)
+	// Describe looks a run up so workflows and signals carry readable details.
+	Describe func(ctx context.Context, runID string) (RunInfo, bool)
 }
 
 type TemporalConfig struct {
@@ -213,10 +280,31 @@ func (t *Temporal) Close() {
 
 func workflowID(runID string) string { return "run-" + runID }
 
+func (t *Temporal) describe(ctx context.Context, runID string) (RunInfo, bool) {
+	if t.Describe == nil {
+		return RunInfo{}, false
+	}
+	return t.Describe(ctx, runID)
+}
+
 func (t *Temporal) RunCreated(ctx context.Context, runID string) {
-	_, err := t.c.ExecuteWorkflow(context.WithoutCancel(ctx), client.StartWorkflowOptions{
-		ID: workflowID(runID), TaskQueue: t.taskQueue,
-	}, RunLifecycle, RunInput{RunID: runID, Timeouts: t.timeouts})
+	in := RunInput{RunID: runID, Timeouts: t.timeouts, Deadlines: map[string]string{
+		"planning": t.timeouts.Planning.String(), "approval": t.timeouts.Approval.String(), "applying": t.timeouts.Applying.String()}}
+	opts := client.StartWorkflowOptions{ID: workflowID(runID), TaskQueue: t.taskQueue}
+	if info, ok := t.describe(ctx, runID); ok {
+		in.Run = &info
+		opts.Memo = map[string]any{"tenant": info.Tenant, "stack": info.Stack, "business_unit": info.BU, "environment": info.Environment, "operation": info.Operation, "requested_by": info.RequestedBy}
+		opts.StaticSummary = fmt.Sprintf("%s %s in %s (%s)", info.Operation, info.Stack, info.Environment, info.Tenant)
+		details := fmt.Sprintf("**Run** `%s`\n\n- Stack: `%s` (business unit `%s`)\n- Environment: `%s`\n- Operation: `%s`\n- Requested by: %s", info.RunID, info.Stack, info.BU, info.Environment, info.Operation, info.RequestedBy)
+		if info.Origin != "" {
+			details += "\n- Origin: " + info.Origin
+		}
+		if info.Link != "" {
+			details += "\n\n[Open in SrustiOps](" + info.Link + ")"
+		}
+		opts.StaticDetails = details
+	}
+	_, err := t.c.ExecuteWorkflow(context.WithoutCancel(ctx), opts, RunLifecycle, in)
 	if err != nil && !isAlreadyStarted(err) {
 		t.log("starting run workflow failed", "run", runID, "err", err)
 	}
@@ -228,12 +316,21 @@ func (t *Temporal) signal(ctx context.Context, runID, name string, arg any) {
 	}
 }
 
+// statusSignal carries the run's current status with a signal.
+func (t *Temporal) statusSignal(ctx context.Context, runID, fallback string, awaiting *bool) Signal {
+	sg := Signal{Status: fallback, AwaitingApproval: awaiting}
+	if info, ok := t.describe(ctx, runID); ok && info.Status != "" {
+		sg.Status = info.Status
+	}
+	return sg
+}
+
 func (t *Temporal) Planned(ctx context.Context, runID string, awaiting bool) {
-	t.signal(ctx, runID, SignalPlanned, awaiting)
+	t.signal(ctx, runID, SignalPlanned, t.statusSignal(ctx, runID, "planned", &awaiting))
 }
 func (t *Temporal) Approved(ctx context.Context, runID string) {
-	t.signal(ctx, runID, SignalApproved, true)
+	t.signal(ctx, runID, SignalApproved, t.statusSignal(ctx, runID, "apply_queued", nil))
 }
 func (t *Temporal) Finished(ctx context.Context, runID string) {
-	t.signal(ctx, runID, SignalFinished, true)
+	t.signal(ctx, runID, SignalFinished, t.statusSignal(ctx, runID, "finished", nil))
 }

@@ -1,0 +1,27 @@
+# Tenant on EKS (T4: no peering). Use with: -f values.yaml -f values-eks.yaml
+# Prerequisites come from the landing module deploy/landing/aws (outputs in angle brackets).
+connectivity: tunnel
+link:
+  gatewayURL: https://link.srustiops.example.com
+  storageClass: gp3
+# IRSA (or EKS Pod Identity association on the same service accounts).
+serviceAccountAnnotations:
+  eks.amazonaws.com/role-arn: <tenant_role_arn>      # S3 bucket, KMS, Secrets Manager
+runner:
+  serviceAccountAnnotations:
+    eks.amazonaws.com/role-arn: <runner_role_arn>    # deploys into the tenant's accounts
+# Master key from AWS Secrets Manager through the secrets-store CSI driver (AWS provider).
+masterKey:
+  source: csi
+  secretProviderClass: srustiops-master-key
+bucket:
+  url: s3://<bucket>?region=<region>
+  credentials: workload   # the tenant role through IRSA, no access keys
+networkPolicy:
+  egress:
+    enabled: true
+    to:
+      # VPC interface endpoints (STS, KMS, EC2, Cloud Control, ECR, Logs, Secrets Manager), the
+      # S3 gateway endpoint, RDS and the gateway (through the NAT or proxy) all sit in the VPC range.
+      - to: [{ ipBlock: { cidr: <vpc_cidr> } }]
+        ports: [{ port: 443 }, { port: 5432 }, { port: 7233 }]

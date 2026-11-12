@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
 )
 
 func cat(t *testing.T) *catalog.Catalog {

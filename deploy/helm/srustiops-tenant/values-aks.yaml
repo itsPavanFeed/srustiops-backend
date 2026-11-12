@@ -1,0 +1,30 @@
+# Tenant on AKS (T5: no peering). Use with: -f values.yaml -f values-aks.yaml
+# Prerequisites: deploy/landing/azure.
+connectivity: tunnel
+link:
+  gatewayURL: https://link.srustiops.example.com
+  storageClass: managed-csi
+# Microsoft Entra Workload ID: the label on pods, the client ID on service accounts.
+podLabels:
+  azure.workload.identity/use: "true"
+serviceAccountAnnotations:
+  azure.workload.identity/client-id: <tenant_client_id>   # Blob Storage, Key Vault
+runner:
+  podLabels:
+    azure.workload.identity/use: "true"
+  serviceAccountAnnotations:
+    azure.workload.identity/client-id: <runner_client_id>
+bucket:
+  url: azblob://<storage_account>/srustiops
+  credentials: workload   # the tenant identity (Workload ID), no account keys
+# Master key from Key Vault through the secrets-store CSI driver (Azure provider).
+masterKey:
+  source: csi
+  secretProviderClass: srustiops-master-key
+networkPolicy:
+  egress:
+    enabled: true
+    to:
+      # Private endpoints for Key Vault, Storage, ACR and PostgreSQL flexible server live in the VNet.
+      - to: [{ ipBlock: { cidr: <vnet_cidr> } }]
+        ports: [{ port: 443 }, { port: 5432 }, { port: 7233 }]

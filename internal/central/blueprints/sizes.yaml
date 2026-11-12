@@ -1,0 +1,50 @@
+# Sizes the client picks from, with the monthly budget cap the plan's cost
+# estimate must stay within (the budget guard signs the FinOps step only then).
+trial:
+  label: Trial
+  budget_usd: 400
+  db_instance_class: db.t4g.micro
+  db_multi_az: false
+  single_nat: true
+  node_types: [t3.large]
+  nodes_min: 1
+  nodes_max: 2
+  replicas: 1
+  vm_type: t3.large
+  gke_machine: e2-standard-4
+  cloudsql_tier: db-custom-1-3840
+  aks_vm: Standard_D4s_v5
+  pg_sku: B_Standard_B2s
+  db_ha: false
+standard:
+  label: Standard
+  budget_usd: 1500
+  db_instance_class: db.t4g.medium
+  db_multi_az: true
+  single_nat: true
+  node_types: [m7i.large]
+  nodes_min: 2
+  nodes_max: 4
+  replicas: 2
+  vm_type: m7i.xlarge
+  gke_machine: e2-standard-4
+  cloudsql_tier: db-custom-2-7680
+  aks_vm: Standard_D4s_v5
+  pg_sku: GP_Standard_D2ds_v5
+  db_ha: true
+ha:
+  label: High availability
+  budget_usd: 4000
+  db_instance_class: db.r7g.large
+  db_multi_az: true
+  single_nat: false
+  node_types: [m7i.xlarge]
+  nodes_min: 3
+  nodes_max: 9
+  replicas: 3
+  vm_type: m7i.2xlarge
+  gke_machine: n2-standard-4
+  cloudsql_tier: db-custom-4-15360
+  aks_vm: Standard_D8s_v5
+  pg_sku: GP_Standard_D4ds_v5
+  db_ha: true

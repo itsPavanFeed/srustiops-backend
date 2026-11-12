@@ -1,0 +1,110 @@
+{{- if include "srustiops.installed" . }}
+{{- if ne .Values.connectivity "tunnel" }}
+{{- fail "self-service install (install.token or install.existingSecret) works with connectivity: tunnel" }}
+{{- end }}
+{{- if .Values.install.token }}
+# The install token, only for the bootstrap Job; removed with it.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Release.Name }}-install-token
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+stringData:
+  token: {{ .Values.install.token | trim | quote }}
+---
+{{- end }}
+# Runs `srustiops bootstrap` once, before the tenant starts: keys are made here
+# and written to Secrets in this namespace; the gateway returns certificates
+# and the link enrolment. Running it again changes nothing.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-bootstrap
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+---
+# Only Secrets, only in this namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .Release.Name }}-bootstrap
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [{{ .Release.Name }}-tls]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-bootstrap
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ .Release.Name }}-bootstrap }
+subjects: [{ kind: ServiceAccount, name: {{ .Release.Name }}-bootstrap, namespace: {{ .Release.Namespace }} }]
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ .Release.Name }}-bootstrap
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: srustiops-bootstrap, app.kubernetes.io/instance: {{ .Release.Name }} }
+    spec:
+      serviceAccountName: {{ .Release.Name }}-bootstrap
+      restartPolicy: Never
+      securityContext: { runAsNonRoot: true, fsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
+      {{- with .Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bootstrap
+          image: "{{ .Values.image.server }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["bootstrap", "-k8s", {{ .Release.Name | quote }}]
+          env:
+            - { name: SRUSTIOPS_TENANT, value: {{ .Values.tenant | quote }} }
+            - { name: SRUSTIOPS_LINK_URL, value: {{ .Values.link.gatewayURL | quote }} }
+            - { name: SRUSTIOPS_INSTALL_TOKEN_FILE, value: /install/token }
+            - name: SRUSTIOPS_SERVER_NAMES
+              value: "{{ include "tenant.name" . }},{{ include "tenant.name" . }}.{{ .Release.Namespace }}.svc,{{ include "tenant.name" . }}.{{ .Release.Namespace }}.svc.cluster.local"
+            {{- if .Values.link.serverCASecret }}
+            - { name: SRUSTIOPS_LINK_SERVER_CA, value: /gateway-ca/ca.crt }
+            {{- end }}
+            {{- with .Values.link.httpsProxy }}
+            - { name: HTTPS_PROXY, value: {{ . | quote }} }
+            {{- end }}
+          securityContext: {{- include "srustiops.securityContext" . | nindent 12 }}
+          volumeMounts:
+            - { name: install-token, mountPath: /install, readOnly: true }
+            {{- if .Values.link.serverCASecret }}
+            - { name: gateway-ca, mountPath: /gateway-ca, readOnly: true }
+            {{- end }}
+      volumes:
+        - name: install-token
+          secret: { secretName: {{ default (printf "%s-install-token" .Release.Name) .Values.install.existingSecret }}, defaultMode: 0440 }
+        {{- if .Values.link.serverCASecret }}
+        - name: gateway-ca
+          secret: { secretName: {{ .Values.link.serverCASecret }}, defaultMode: 0444 }
+        {{- end }}
+{{- end }}

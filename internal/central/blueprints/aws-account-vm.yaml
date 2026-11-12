@@ -1,0 +1,67 @@
+# The client has only an AWS account and wants VMs: a VPC, the landing pieces
+# (with an instance profile instead of IRSA), then one EC2 instance running
+# the services in Docker Compose against the managed database.
+id: aws-account-vm
+title: New VPC and a VM (Docker Compose)
+cloud: aws
+mode: account_only
+target: vm
+inputs:
+  - {name: vpc_cidr, label: "VPC CIDR (a /16)", default: "10.42.0.0/16", pattern: "^(\\d{1,3}\\.){3}\\d{1,3}/16$"}
+stacks:
+  - name: network
+    role: service
+    spec: |
+      modules:
+        - name: vpc
+          module: aws-vpc
+          inputs:
+            name: {{ .Name }}
+            cidr: {{ .Inputs.vpc_cidr }}
+            azs: {{ json (azs .Region 2) }}
+            private_subnets: [{{ subnet .Inputs.vpc_cidr 3 0 | json }}, {{ subnet .Inputs.vpc_cidr 3 1 | json }}]
+            public_subnets: [{{ subnet .Inputs.vpc_cidr 6 24 | json }}, {{ subnet .Inputs.vpc_cidr 6 25 | json }}]
+            enable_nat_gateway: true
+            single_nat_gateway: true
+            tags: {srustiops-workspace: {{ .Slug }}}
+  - name: landing
+    role: data
+    spec: |
+      modules:
+        - name: landing
+          module: aws-srustiops-landing
+          inputs:
+            name: {{ .Name }}
+            vpc_id: {"$ref": "stack/{{ stack "network" }}/vpc.vpc_id"}
+            vpc_cidr: {{ .Inputs.vpc_cidr }}
+            private_subnet_ids: {"$ref": "stack/{{ stack "network" }}/vpc.private_subnets"}
+            db_instance_class: {{ .Size.db_instance_class }}
+            db_multi_az: {{ .Size.db_multi_az }}
+            tags: {srustiops-workspace: {{ .Slug }}}
+  - name: vm
+    role: install
+    # Removing the workspace keeps the machine: only SrustiOps comes off it.
+    uninstall: input:remove_srustiops
+    spec: |
+      modules:
+        - name: vm
+          module: aws-srustiops-vm
+          inputs:
+            name: {{ .Name }}
+            tenant: {{ .Slug }}
+            vpc_id: {"$ref": "stack/{{ stack "network" }}/vpc.vpc_id"}
+            vpc_cidr: {{ .Inputs.vpc_cidr }}
+            subnet_ids: {"$ref": "stack/{{ stack "network" }}/vpc.private_subnets"}
+            instance_profile: {"$ref": "stack/{{ stack "landing" }}/landing.instance_profile"}
+            kms_key_arn: {"$ref": "stack/{{ stack "landing" }}/landing.kms_key_arn"}
+            database_endpoint: {"$ref": "stack/{{ stack "landing" }}/landing.database_endpoint"}
+            database_password_secret_arn: {"$ref": "stack/{{ stack "landing" }}/landing.database_password_secret_arn"}
+            gateway_url: {{ json .Platform.GatewayURL }}
+            central_url: {{ json .Platform.CentralURL }}
+            gateway_ca: {{ json .Platform.GatewayCA }}
+            install_token: {{ json .InstallToken }}
+            image_repo: {{ json .Platform.ImageRepo }}
+            image_tag: {{ json .Platform.ImageTag }}
+            instance_type: {{ .Size.vm_type }}
+            remove_srustiops: false
+            tags: {srustiops-workspace: {{ .Slug }}}

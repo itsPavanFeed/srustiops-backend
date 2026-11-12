@@ -15,7 +15,7 @@ var Tiers = []string{"prod", "nonprod"}
 // Defaults is one tenant's defaults for one kind, from
 // tenants/<tenant>/defaults/<Kind>.yaml in the modules repository:
 //
-//	apiVersion: pravaha/v1
+//	apiVersion: srustiops/v1
 //	kind: Defaults
 //	target: S3Bucket
 //	version: 5.17.0          # optional: the version contracts get unless they pin one
@@ -52,7 +52,7 @@ func (o *Overlay) For(kind string) *Defaults {
 }
 
 // APIVersion is the only version of the platform's YAML documents.
-const APIVersion = "pravaha/v1"
+const APIVersion = "srustiops/v1"
 
 // LoadOverlay reads <dir>/defaults/*.yaml for one tenant. A missing directory is
 // an empty overlay. Each file must target a kind of cat; values are validated

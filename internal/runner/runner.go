@@ -14,32 +14,40 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/itsPavanFeed/srustiops-backend/internal/vaultkv"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"regexp"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/api"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/bundlecache"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/config"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/depcheck"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/policy"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/redact"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/release"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/secure"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/spec"
+	"github.com/itsPavanFeed/srustiops-backend/internal/api"
+	"github.com/itsPavanFeed/srustiops-backend/internal/bundlecache"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/config"
+	"github.com/itsPavanFeed/srustiops-backend/internal/depcheck"
+	"github.com/itsPavanFeed/srustiops-backend/internal/metrics"
+	"github.com/itsPavanFeed/srustiops-backend/internal/policy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/redact"
+	"github.com/itsPavanFeed/srustiops-backend/internal/release"
+	"github.com/itsPavanFeed/srustiops-backend/internal/secure"
+	"github.com/itsPavanFeed/srustiops-backend/internal/spec"
 )
 
 const (
-	planTimeout  = 30 * time.Minute
-	applyTimeout = 2 * time.Hour
-	planFile     = "plan.bin"
+	planTimeout = 30 * time.Minute
+	// initAttemptTimeout bounds one `tofu init` attempt (downloads included).
+	initAttemptTimeout = 5 * time.Minute
+	applyTimeout       = 2 * time.Hour
+	planFile           = "plan.bin"
 )
 
 type Runner struct {
@@ -129,7 +137,7 @@ func New(cfg *config.Runner, log *slog.Logger) (*Runner, error) {
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pem) {
-			return nil, errors.New("PRAVAHA_CA_FILE contains no certificates")
+			return nil, errors.New("SRUSTIOPS_CA_FILE contains no certificates")
 		}
 		tlsCfg.RootCAs = pool
 		r.caPEM = string(pem)
@@ -140,7 +148,7 @@ func New(cfg *config.Runner, log *slog.Logger) (*Runner, error) {
 		return nil, fmt.Errorf("OpenTofu binary not found: %w", err)
 	}
 	r.tofuPath, _ = filepath.Abs(p)
-	if dir := os.Getenv("PRAVAHA_CATALOG_DIR"); dir != "" {
+	if dir := os.Getenv("SRUSTIOPS_CATALOG_DIR"); dir != "" {
 		if r.pinned, err = catalog.Load(dir); err != nil {
 			return nil, fmt.Errorf("pinned catalog: %w", err)
 		}
@@ -154,7 +162,7 @@ func New(cfg *config.Runner, log *slog.Logger) (*Runner, error) {
 	dir := cfg.BundleCacheDir
 	if dir == "" {
 		if d, err := os.UserCacheDir(); err == nil {
-			dir = filepath.Join(d, "pravaha", "runner-bundles")
+			dir = filepath.Join(d, "srustiops", "runner-bundles")
 		}
 	}
 	if r.bundles, err = bundlecache.New(r.fetchBundle, dir, 512<<20, cfg.BundleCacheDisk); err != nil {
@@ -230,6 +238,8 @@ func (r *Runner) claim(ctx context.Context) (*api.Job, error) {
 	}
 }
 
+var errCancelled = errors.New("cancelled from the console")
+
 // job holds per-run state.
 type job struct {
 	*api.Job
@@ -242,18 +252,51 @@ type job struct {
 	catalog *catalog.Catalog
 }
 
+var (
+	jobsRunning = metrics.Default.Gauge("srustiops_runner_jobs_running", "Runs this runner is executing now.")
+	jobsTotal   = metrics.Default.Counter("srustiops_runner_jobs_total", "Runs this runner finished, by phase and result.")
+	jobSeconds  = metrics.Default.Histogram("srustiops_runner_job_duration_seconds", "How long runs take, by phase.", []float64{10, 30, 60, 120, 300, 600, 1200, 1800, 3600})
+	running     atomic.Int64
+)
+
 func (r *Runner) execute(ctx context.Context, j *api.Job) {
 	log := r.log.With("run", j.RunID, "stack", j.Stack, "phase", j.Phase)
 	log.Info("run claimed")
-	passphrase := secure.Derive([]byte(r.cfg.StateKey), "pravaha-state:"+j.StackID)
+	jobsRunning.Set(float64(running.Add(1)))
+	started := time.Now()
+	result := "ok"
+	defer func() {
+		jobsRunning.Set(float64(running.Add(-1)))
+		jobsTotal.Inc("phase", j.Phase, "result", result)
+		jobSeconds.Observe(time.Since(started).Seconds(), "phase", j.Phase)
+	}()
+	passphrase := secure.Derive([]byte(r.cfg.StateKey), "srustiops-state:"+j.StackID)
 	rj := &job{Job: j, r: r, red: redact.New(j.RunToken, j.OIDCToken, j.VaultToken, passphrase, r.cfg.StateKey, r.cfg.Token)}
-	rj.logs = newLogSink(ctx, r, j)
+	// A person may cancel the run from the console: the log heartbeat says so,
+	// and every OpenTofu command is interrupted (it stops cleanly, saving state).
+	rctx, cancelRun := context.WithCancelCause(ctx)
+	defer cancelRun(nil)
+	rj.logs = newLogSink(rctx, r, j)
+	rj.logs.onCancel = func(by string) {
+		rj.logs.Printf("\n==> cancelled by %s; interrupting OpenTofu\n", by)
+		log.Info("run cancelled from the console", "by", by)
+		cancelRun(errCancelled)
+	}
 	defer rj.logs.Close()
 
-	err := rj.run(ctx, passphrase)
+	err := rj.run(rctx, passphrase)
+	if context.Cause(rctx) == errCancelled && err != nil {
+		err = fmt.Errorf("cancelled: %w", err)
+	}
 	status := "applied"
 	msg := ""
+	var missing []string
+	var mi *missingImportsError
+	if errors.As(err, &mi) {
+		missing = mi.Addresses
+	}
 	if err != nil {
+		result = "failed"
 		status, msg = "failed", rj.red.String(err.Error())
 		rj.logs.Write([]byte("\nERROR: " + msg + "\n"))
 		log.Warn("run failed", "err", msg)
@@ -264,13 +307,13 @@ func (r *Runner) execute(ctx context.Context, j *api.Job) {
 		log.Info("apply finished")
 	}
 	rj.logs.Flush()
-	if err := rj.call(ctx, http.MethodPost, "/finish", map[string]string{"status": status, "error": msg}, nil); err != nil {
+	if err := rj.call(ctx, http.MethodPost, "/finish", map[string]any{"status": status, "error": msg, "missing_imports": missing}, nil); err != nil {
 		log.Error("reporting run result failed", "err", err)
 	}
 }
 
 func (j *job) run(ctx context.Context, passphrase string) (err error) {
-	j.dir, err = os.MkdirTemp(j.r.cfg.WorkRoot, "pravaha-run-")
+	j.dir, err = os.MkdirTemp(j.r.cfg.WorkRoot, "srustiops-run-")
 	if err != nil {
 		return err
 	}
@@ -305,6 +348,9 @@ func (j *job) run(ctx context.Context, passphrase string) (err error) {
 	if err := j.buildEnv(passphrase); err != nil {
 		return err
 	}
+	if err := j.secretEnv(ctx); err != nil {
+		return err
+	}
 	if err := j.checkTofuVersion(ctx); err != nil {
 		return err
 	}
@@ -324,11 +370,20 @@ func (j *job) run(ctx context.Context, passphrase string) (err error) {
 	j.logs.Printf("==> tofu init (OpenTofu %s, %d allowlisted providers)\n", j.TofuVersion, len(j.Providers))
 	// init is idempotent; retry transient registry and network failures.
 	for attempt := 1; ; attempt++ {
+		// Each attempt has its own limit: a download that hangs (a stalled
+		// connection to a registry or GitHub) is retried like a failed one,
+		// instead of holding the plan until its overall timeout.
 		j.r.initMu.Lock()
-		err := j.tofu(ctx, "init", "-input=false", "-no-color")
+		actx, acancel := context.WithTimeout(ctx, initAttemptTimeout)
+		err := j.tofu(actx, "init", "-input=false", "-no-color")
+		hung := actx.Err() == context.DeadlineExceeded && ctx.Err() == nil
+		acancel()
 		j.r.initMu.Unlock()
 		if err == nil {
 			break
+		}
+		if hung {
+			j.logs.Printf("==> tofu init made no progress for %s; stopping it\n", initAttemptTimeout)
 		}
 		if attempt == 3 || ctx.Err() != nil {
 			return fmt.Errorf("tofu init failed: %w", err)
@@ -349,17 +404,56 @@ func (j *job) run(ctx context.Context, passphrase string) (err error) {
 	if err := j.tofu(ctx, "apply", "-input=false", "-no-color", "-lock-timeout=60s", planFile); err != nil {
 		return fmt.Errorf("tofu apply failed: %w", err)
 	}
+	if err := j.reportOutputs(ctx); err != nil {
+		// The apply succeeded; stacks referencing these outputs wait until a
+		// later apply reports them.
+		j.logs.Printf("==> reporting outputs failed: %s\n", j.red.String(err.Error()))
+	}
 	return nil
 }
 
+// reportOutputs sends the exported resource outputs (srustiops__<module>__<output>)
+// to the control plane, which keeps them sealed for stacks that reference them.
+// Values are never written to the run log.
+func (j *job) reportOutputs(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, j.r.tofuPath, "output", "-json")
+	cmd.Dir, cmd.Env = j.dir, j.env
+	out, err := cmd.Output()
+	if err != nil {
+		return fmt.Errorf("tofu output: %w", err)
+	}
+	var all map[string]struct {
+		Value json.RawMessage `json:"value"`
+	}
+	if err := json.Unmarshal(out, &all); err != nil {
+		return fmt.Errorf("parsing outputs: %w", err)
+	}
+	exported := map[string]json.RawMessage{}
+	for name, o := range all {
+		if key, ok := spec.ExportKey(name); ok && len(o.Value) <= 64<<10 {
+			exported[key] = o.Value
+		}
+	}
+	j.logs.Printf("==> reporting %d resource output(s) for other stacks\n", len(exported))
+	return j.call(ctx, http.MethodPost, "/outputs", map[string]any{"outputs": exported}, nil)
+}
+
 func (j *job) writeFiles() error {
-	if err := os.MkdirAll(filepath.Join(j.dir, ".pravaha", "home"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(j.dir, ".srustiops", "home"), 0o700); err != nil {
 		return err
 	}
 	for name, data := range j.Files {
-		// Only the files the generator produces: main.tf and .pravaha/*.
-		if name != spec.ConfigFile && !(strings.HasPrefix(name, ".pravaha/") && !strings.Contains(name, "..") && strings.Count(name, "/") == 1) {
+		// Only the files the generator produces: main.tf, .srustiops/* and the
+		// first-party modules' code (.srustiops/modules/<dir>/<file>.tf), which
+		// depcheck compares with this runner's own catalog before use.
+		firstParty := firstPartyFileRe.MatchString(name)
+		if name != spec.ConfigFile && !firstParty && !(strings.HasPrefix(name, ".srustiops/") && !strings.Contains(name, "..") && strings.Count(name, "/") == 1) {
 			return fmt.Errorf("job contains unexpected file %q", name)
+		}
+		if firstParty {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(j.dir, name)), 0o700); err != nil {
+				return err
+			}
 		}
 		if err := os.WriteFile(filepath.Join(j.dir, name), data, 0o600); err != nil {
 			return err
@@ -390,41 +484,51 @@ func (j *job) writeFiles() error {
 		inc = append(inc, fmt.Sprintf("%q", catalog.Registry+"/"+p))
 	}
 	cli := "disable_checkpoint = true\n"
-	if len(inc) > 0 {
+	switch {
+	case len(inc) > 0 && j.r.cfg.ProviderMirror != "":
+		// Air-gapped: the local mirror only. Lock file hashes still apply.
+		cli += fmt.Sprintf("provider_installation {\n  filesystem_mirror {\n    path    = %q\n    include = [%s]\n  }\n}\n", j.r.cfg.ProviderMirror, strings.Join(inc, ", "))
+	case len(inc) > 0 && j.r.cfg.ProviderSeed != "":
+		// The image's seed first, the registry for versions it lacks: for a
+		// version both have, the first method listed wins, so pinned providers
+		// install from disk.
+		cli += fmt.Sprintf("provider_installation {\n  filesystem_mirror {\n    path    = %q\n    include = [%s]\n  }\n  direct {\n    include = [%s]\n  }\n}\n",
+			j.r.cfg.ProviderSeed, strings.Join(inc, ", "), strings.Join(inc, ", "))
+	case len(inc) > 0:
 		cli += "provider_installation {\n  direct {\n    include = [" + strings.Join(inc, ", ") + "]\n  }\n}\n"
-	} else {
+	default:
 		cli += "provider_installation {\n  direct {\n    exclude = [\"*/*/*\"]\n  }\n}\n"
 	}
-	return os.WriteFile(filepath.Join(j.dir, ".pravaha", "cli.tfrc"), []byte(cli), 0o600)
+	return os.WriteFile(filepath.Join(j.dir, ".srustiops", "cli.tfrc"), []byte(cli), 0o600)
 }
 
 // buildEnv gives OpenTofu a minimal environment: no inherited cloud
 // credentials, a private HOME, the run-scoped state token and enforced state
 // and plan encryption.
 func (j *job) buildEnv(passphrase string) error {
-	enc := fmt.Sprintf(`key_provider "pbkdf2" "pravaha" {
+	enc := fmt.Sprintf(`key_provider "pbkdf2" "srustiops" {
   passphrase = %q
 }
-method "aes_gcm" "pravaha" {
-  keys = key_provider.pbkdf2.pravaha
+method "aes_gcm" "srustiops" {
+  keys = key_provider.pbkdf2.srustiops
 }
 state {
-  method   = method.aes_gcm.pravaha
+  method   = method.aes_gcm.srustiops
   enforced = true
 }
 plan {
-  method   = method.aes_gcm.pravaha
+  method   = method.aes_gcm.srustiops
   enforced = true
 }
 `, passphrase)
 	j.env = []string{
 		"PATH=" + filepath.Dir(j.r.tofuPath) + ":/usr/bin:/bin",
-		"HOME=" + filepath.Join(j.dir, ".pravaha", "home"),
+		"HOME=" + filepath.Join(j.dir, ".srustiops", "home"),
 		"TMPDIR=" + j.tmp,
 		"TF_IN_AUTOMATION=1",
 		"TF_INPUT=0",
 		"CHECKPOINT_DISABLE=1",
-		"TF_CLI_CONFIG_FILE=" + filepath.Join(j.dir, ".pravaha", "cli.tfrc"),
+		"TF_CLI_CONFIG_FILE=" + filepath.Join(j.dir, ".srustiops", "cli.tfrc"),
 		"TF_HTTP_ADDRESS=" + j.r.cfg.ServerURL + "/state/v1/" + j.StackID,
 		"TF_HTTP_LOCK_ADDRESS=" + j.r.cfg.ServerURL + "/state/v1/" + j.StackID,
 		"TF_HTTP_UNLOCK_ADDRESS=" + j.r.cfg.ServerURL + "/state/v1/" + j.StackID,
@@ -461,6 +565,38 @@ plan {
 	return nil
 }
 
+// secretEnv reads cloud credentials from the secret store (vault mode) with
+// the run's own token. Only allowlisted variables are filled, and every
+// value is redacted from the logs.
+func (j *job) secretEnv(ctx context.Context) error {
+	if len(j.SecretEnv) == 0 {
+		return nil
+	}
+	if j.SecretStore == nil || j.VaultToken == "" {
+		return errors.New("the connection keeps its credentials in the secret store, but the job carries no secret store")
+	}
+	for k := range j.SecretEnv {
+		if !spec.SecretEnvAllowed[k] {
+			return fmt.Errorf("job asks the runner to fill %q from the secret store, which runners do not accept", k)
+		}
+	}
+	if err := j.SecretStore.Validate(); err != nil {
+		return fmt.Errorf("the job's secret store is invalid: %w", err)
+	}
+	vals, err := vaultkv.ReadAll(ctx, j.SecretStore, j.VaultToken, j.SecretEnv)
+	if err != nil {
+		return fmt.Errorf("reading the cloud credentials: %w", err)
+	}
+	for k, v := range vals {
+		if strings.ContainsRune(v, 0) {
+			return fmt.Errorf("the secret for %s is not usable", k)
+		}
+		j.red.Add(v)
+		j.env = append(j.env, k+"="+v)
+	}
+	return nil
+}
+
 func (j *job) checkTofuVersion(ctx context.Context) error {
 	cmd := exec.CommandContext(ctx, j.r.tofuPath, "version", "-json")
 	cmd.Dir, cmd.Env = j.dir, j.env
@@ -479,9 +615,21 @@ func (j *job) checkTofuVersion(ctx context.Context) error {
 }
 
 func (j *job) tofu(ctx context.Context, args ...string) error {
+	return j.tofuTee(ctx, nil, args...)
+}
+
+// tofuTee runs tofu, also copying its (redacted) output to tee when set.
+func (j *job) tofuTee(ctx context.Context, tee io.Writer, args ...string) error {
 	cmd := exec.CommandContext(ctx, j.r.tofuPath, args...)
 	cmd.Dir, cmd.Env = j.dir, j.env
-	w := &redactWriter{red: j.red, out: j.logs}
+	// Interrupt rather than kill: OpenTofu then stops cleanly, releases its
+	// lock and saves state; WaitDelay kills it if it does not stop.
+	cmd.Cancel = func() error { return cmd.Process.Signal(os.Interrupt) }
+	var out io.Writer = j.logs
+	if tee != nil {
+		out = io.MultiWriter(j.logs, tee)
+	}
+	w := &redactWriter{red: j.red, out: out}
 	cmd.Stdout, cmd.Stderr = w, w
 	cmd.WaitDelay = 30 * time.Second
 	err := cmd.Run()
@@ -498,7 +646,11 @@ func (j *job) plan(ctx context.Context) error {
 		args = append(args, "-refresh-only") // compare real infrastructure with state; never changes anything
 	}
 	j.logs.Printf("==> tofu %s\n", strings.Join(args, " "))
-	if err := j.tofu(ctx, args...); err != nil {
+	captured := &capped{max: 1 << 20}
+	if err := j.tofuTee(ctx, captured, args...); err != nil {
+		if addrs := missingImports(captured.String()); len(addrs) > 0 {
+			return &missingImportsError{Addresses: addrs, err: fmt.Errorf("tofu plan failed: %w", err)}
+		}
 		return fmt.Errorf("tofu plan failed: %w", err)
 	}
 	cmd := exec.CommandContext(ctx, j.r.tofuPath, "show", "-json", planFile)
@@ -527,7 +679,10 @@ func (j *job) plan(ctx context.Context) error {
 	if err := j.call(ctx, http.MethodPost, "/plan", map[string]any{"summary": summary, "plan": plan, "sha256": secure.SHA256Hex(plan)}, &res); err != nil {
 		return fmt.Errorf("uploading plan: %w", err)
 	}
-	j.logs.Printf("==> control plane result: %s\n", res.Status)
+	// Not in the run log: accepting the plan ends this phase and revokes the
+	// run token, so a line shipped now is refused (and counted as a failed
+	// sign-in). The control plane records the result on the run itself.
+	j.r.log.Info("plan accepted", "run", j.RunID, "result", res.Status)
 	return nil
 }
 
@@ -584,29 +739,171 @@ type resourceChange struct {
 	Type    string `json:"type"`
 	Mode    string `json:"mode"`
 	Change  struct {
-		Actions        []string `json:"actions"`
-		Importing      any      `json:"importing"`
-		After          any      `json:"after"`
-		AfterSensitive any      `json:"after_sensitive"`
-		AfterUnknown   any      `json:"after_unknown"`
+		Actions         []string `json:"actions"`
+		Importing       any      `json:"importing"`
+		Before          any      `json:"before"`
+		BeforeSensitive any      `json:"before_sensitive"`
+		After           any      `json:"after"`
+		AfterSensitive  any      `json:"after_sensitive"`
+		AfterUnknown    any      `json:"after_unknown"`
 	} `json:"change"`
 }
 
 type planJSON struct {
 	ResourceDrift   []resourceChange `json:"resource_drift"`
-	ResourceChanges []struct {
-		Address string `json:"address"`
-		Type    string `json:"type"`
-		Mode    string `json:"mode"`
-		Change  struct {
-			Actions        []string `json:"actions"`
-			Importing      any      `json:"importing"`
-			After          any      `json:"after"`
-			AfterSensitive any      `json:"after_sensitive"`
-			AfterUnknown   any      `json:"after_unknown"`
-		} `json:"change"`
-	} `json:"resource_changes"`
-	OutputChanges map[string]any `json:"output_changes"`
+	ResourceChanges []resourceChange `json:"resource_changes"`
+	OutputChanges   map[string]any   `json:"output_changes"`
+	PriorState      *struct {
+		Values *valuesModule `json:"values"`
+	} `json:"prior_state"`
+	PlannedValues *valuesModule `json:"planned_values"`
+}
+
+// valuesModule is a module of `tofu show -json` values (state or planned).
+type valuesModule struct {
+	RootModule   *valuesModule    `json:"root_module"`
+	Resources    []valuesResource `json:"resources"`
+	ChildModules []valuesModule   `json:"child_modules"`
+}
+
+type valuesResource struct {
+	Address         string         `json:"address"`
+	Mode            string         `json:"mode"`
+	Type            string         `json:"type"`
+	Values          map[string]any `json:"values"`
+	SensitiveValues map[string]any `json:"sensitive_values"`
+}
+
+const maxStateResources = 2000
+
+// stateResources lists a values tree's managed resources: address, type and
+// the provider's id when it is a plain, non-sensitive string.
+func stateResources(m *valuesModule) []policy.StateResource {
+	out := []policy.StateResource{}
+	var walk func(*valuesModule)
+	walk = func(m *valuesModule) {
+		if m == nil || len(out) >= maxStateResources {
+			return
+		}
+		if m.RootModule != nil {
+			walk(m.RootModule)
+		}
+		for _, r := range m.Resources {
+			if r.Mode != "managed" || len(out) >= maxStateResources {
+				continue
+			}
+			sr := policy.StateResource{Address: r.Address, Type: r.Type}
+			if id, ok := r.Values["id"].(string); ok && len(id) <= 256 && !truthy(r.SensitiveValues["id"]) {
+				sr.ID = id
+			}
+			out = append(out, sr)
+		}
+		for i := range m.ChildModules {
+			walk(&m.ChildModules[i])
+		}
+	}
+	walk(m)
+	return out
+}
+
+const maxDiffs = 40
+
+// attrDiffs compares two objects attribute by attribute (top level). live and
+// code say which side is which: for a planned change the prior (refreshed)
+// state is live and the planned value is code; for drift the refreshed value
+// is live and the last applied state is code. Sensitive values are masked and
+// values the plan cannot know yet are shown as such.
+func attrDiffs(live, liveSens, code, codeSens, codeUnknown any) []policy.AttrDiff {
+	lm, _ := live.(map[string]any)
+	cm, _ := code.(map[string]any)
+	if lm == nil || cm == nil {
+		return nil
+	}
+	ls, _ := liveSens.(map[string]any)
+	cs, _ := codeSens.(map[string]any)
+	cu, _ := codeUnknown.(map[string]any)
+	keys := map[string]bool{}
+	for k := range lm {
+		keys[k] = true
+	}
+	for k := range cm {
+		keys[k] = true
+	}
+	names := make([]string, 0, len(keys))
+	for k := range keys {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	var out []policy.AttrDiff
+	for _, k := range names {
+		unknown := truthy(cu[k])
+		if !unknown && reflect.DeepEqual(lm[k], cm[k]) {
+			continue
+		}
+		if !unknown && emptyish(lm[k]) && emptyish(cm[k]) {
+			continue
+		}
+		d := policy.AttrDiff{Path: k, Live: shown(lm[k], ls[k]), Code: shown(cm[k], cs[k])}
+		if unknown {
+			d.Code = "(known after apply)"
+		}
+		out = append(out, d)
+		if len(out) == maxDiffs {
+			break
+		}
+	}
+	return out
+}
+
+// truthy reports whether a sensitivity or unknown marker marks anything:
+// OpenTofu mirrors the value's shape ({} or [{}]) even when nothing in it is
+// marked, so only a true somewhere inside counts.
+func truthy(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case map[string]any:
+		for _, x := range t {
+			if truthy(x) {
+				return true
+			}
+		}
+	case []any:
+		for _, x := range t {
+			if truthy(x) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// emptyish treats null, "", [] and {} alike: providers report them interchangeably.
+func emptyish(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case []any:
+		return len(t) == 0
+	case map[string]any:
+		return len(t) == 0
+	}
+	return false
+}
+
+func shown(v, sens any) any {
+	if b, ok := sens.(bool); ok && b {
+		return "(sensitive)"
+	}
+	if truthy(sens) {
+		v = scrub(v, sens, nil) // keep the parts that are not sensitive
+	}
+	if b, _ := json.Marshal(v); len(b) > 1024 {
+		return "(large value)"
+	}
+	return v
 }
 
 // Summarize turns `tofu show -json` into the policy summary. Sensitive and
@@ -617,6 +914,10 @@ func Summarize(b []byte) (policy.Summary, error) {
 		return policy.Summary{}, fmt.Errorf("parsing plan JSON: %w", err)
 	}
 	s := policy.Summary{Resources: []policy.ResourceChange{}}
+	if p.PriorState != nil {
+		s.State = stateResources(p.PriorState.Values)
+	}
+	s.Planned = stateResources(p.PlannedValues)
 	for _, rc := range p.ResourceChanges {
 		a := rc.Change.Actions
 		importing := rc.Change.Importing != nil
@@ -640,6 +941,9 @@ func Summarize(b []byte) (policy.Summary, error) {
 			s.Destroy++
 		}
 		ch := policy.ResourceChange{Address: rc.Address, Type: rc.Type, Actions: a, Importing: importing}
+		if a[0] != "create" { // updates, replacements and imports that would change something
+			ch.Diff = attrDiffs(rc.Change.Before, rc.Change.BeforeSensitive, rc.Change.After, rc.Change.AfterSensitive, rc.Change.AfterUnknown)
+		}
 		if m, ok := scrub(rc.Change.After, rc.Change.AfterSensitive, rc.Change.AfterUnknown).(map[string]any); ok {
 			if enc, _ := json.Marshal(m); len(enc) <= 8<<10 {
 				ch.After = m
@@ -647,14 +951,25 @@ func Summarize(b []byte) (policy.Summary, error) {
 		}
 		s.Resources = append(s.Resources, ch)
 	}
-	for name := range p.OutputChanges {
+	for name, oc := range p.OutputChanges {
+		// Unchanged outputs are listed too ("no-op"); only changes count.
+		var c struct {
+			Actions []string `json:"actions"`
+		}
+		b, _ := json.Marshal(oc)
+		json.Unmarshal(b, &c)
+		if len(c.Actions) == 1 && c.Actions[0] == "no-op" {
+			continue
+		}
 		s.Outputs = append(s.Outputs, name)
 	}
+	sort.Strings(s.Outputs)
 	for _, rd := range p.ResourceDrift {
 		if rd.Mode == "data" || len(rd.Change.Actions) == 0 || rd.Change.Actions[0] == "no-op" {
 			continue
 		}
-		s.Drift = append(s.Drift, policy.ResourceChange{Address: rd.Address, Type: rd.Type, Actions: rd.Change.Actions})
+		s.Drift = append(s.Drift, policy.ResourceChange{Address: rd.Address, Type: rd.Type, Actions: rd.Change.Actions,
+			Diff: attrDiffs(rd.Change.After, rd.Change.AfterSensitive, rd.Change.Before, rd.Change.BeforeSensitive, nil)})
 	}
 	return s, nil
 }
@@ -703,12 +1018,16 @@ func scrub(v, sens, unk any) any {
 type logSink struct {
 	mu      sync.Mutex
 	stopped bool // the control plane no longer accepts this run's token
-	buf     bytes.Buffer
-	ctx     context.Context
-	r       *Runner
-	job     *api.Job
-	done    chan struct{}
-	wg      sync.WaitGroup
+	// onCancel is called once when the control plane says the run was cancelled.
+	onCancel  func(by string)
+	cancelled bool
+	lastSent  time.Time
+	buf       bytes.Buffer
+	ctx       context.Context
+	r         *Runner
+	job       *api.Job
+	done      chan struct{}
+	wg        sync.WaitGroup
 }
 
 func newLogSink(ctx context.Context, r *Runner, j *api.Job) *logSink {
@@ -745,18 +1064,30 @@ func (l *logSink) Printf(format string, a ...any) { fmt.Fprintf(l, format, a...)
 
 func (l *logSink) Flush() {
 	l.mu.Lock()
-	if l.buf.Len() == 0 || l.stopped {
+	// With nothing to send, post an empty heartbeat every 5 seconds: the
+	// answer says whether someone cancelled the run.
+	if l.stopped || (l.buf.Len() == 0 && time.Since(l.lastSent) < 5*time.Second) {
 		l.mu.Unlock()
 		return
 	}
 	chunk := append([]byte(nil), l.buf.Bytes()...)
 	l.buf.Reset()
+	l.lastSent = time.Now()
 	l.mu.Unlock()
 	req, _ := http.NewRequestWithContext(context.WithoutCancel(l.ctx), http.MethodPost, l.r.cfg.ServerURL+"/api/v1/agent/runs/"+l.job.RunID+"/logs", bytes.NewReader(chunk))
 	req.Header.Set("Authorization", "Bearer "+l.job.RunToken)
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
 	if resp, err := l.r.http.Do(req); err == nil {
 		resp.Body.Close()
+		if by := resp.Header.Get("X-SrustiOps-Cancel"); by != "" {
+			l.mu.Lock()
+			fire := !l.cancelled && l.onCancel != nil
+			l.cancelled = true
+			l.mu.Unlock()
+			if fire {
+				go l.onCancel(by)
+			}
+		}
 		// The run ended on the control plane (discarded, timed out): its token
 		// is no longer valid. Retrying would only count as failed logins and
 		// could lock this runner's address out.
@@ -815,3 +1146,47 @@ func sleep(ctx context.Context, d time.Duration) {
 	case <-time.After(d):
 	}
 }
+
+// missingImportsError: the plan failed because import targets do not exist in
+// the cloud. The control plane may drop optional ones and plan again.
+type missingImportsError struct {
+	Addresses []string
+	err       error
+}
+
+func (e *missingImportsError) Error() string { return e.err.Error() }
+func (e *missingImportsError) Unwrap() error { return e.err }
+
+var missingImportRe = regexp.MustCompile(`Cannot import non-existent remote object\s+While attempting to import an existing object to\s+"([^"]+)"`)
+
+// missingImports lists the addresses OpenTofu found nothing to import at.
+func missingImports(out string) []string {
+	var addrs []string
+	seen := map[string]bool{}
+	for _, m := range missingImportRe.FindAllStringSubmatch(out, -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			addrs = append(addrs, m[1])
+		}
+	}
+	return addrs
+}
+
+// capped keeps the first max bytes written to it.
+type capped struct {
+	bytes.Buffer
+	max int
+}
+
+func (c *capped) Write(p []byte) (int, error) {
+	if room := c.max - c.Len(); room > 0 {
+		if len(p) > room {
+			c.Buffer.Write(p[:room])
+		} else {
+			c.Buffer.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+var firstPartyFileRe = regexp.MustCompile(`^\.srustiops/modules/[a-z0-9.-]{1,120}/[a-z0-9_-]{1,64}\.tf$`)

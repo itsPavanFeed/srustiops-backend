@@ -7,26 +7,26 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/depcheck"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/spec"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/depcheck"
+	"github.com/itsPavanFeed/srustiops-backend/internal/spec"
 )
 
 // TestFixtureStacksAgainstRegistry renders each fixture stack with the real
 // catalog, downloads its modules and providers, runs the post-init dependency
 // check and `tofu validate`. It needs network access and tofu on PATH:
 //
-//	PRAVAHA_TOFU_INTEGRATION=1 go test ./internal/spec -run Registry -v
+//	SRUSTIOPS_TOFU_INTEGRATION=1 go test ./internal/spec -run Registry -v
 func TestFixtureStacksAgainstRegistry(t *testing.T) {
-	if os.Getenv("PRAVAHA_TOFU_INTEGRATION") == "" {
-		t.Skip("set PRAVAHA_TOFU_INTEGRATION=1 to run against the OpenTofu registry")
+	if os.Getenv("SRUSTIOPS_TOFU_INTEGRATION") == "" {
+		t.Skip("set SRUSTIOPS_TOFU_INTEGRATION=1 to run against the OpenTofu registry")
 	}
 	tofu, err := exec.LookPath("tofu")
 	if err != nil {
 		t.Skip("tofu is not on PATH")
 	}
-	res := filepath.Join("..", "..", "..", "cloud-pravaha-test-resources")
-	cat, err := catalog.Load(filepath.Join("..", "..", "..", "cloud-pravaha-modules", "catalog"))
+	res := filepath.Join("..", "..", "..", "srustiops-test-resources")
+	cat, err := catalog.Load(filepath.Join("..", "..", "..", "srustiops-modules", "catalog"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestFixtureStacksAgainstRegistry(t *testing.T) {
 				}
 			}
 			if cloud.Provider == "gcp" { // the runner writes this per phase
-				os.MkdirAll(filepath.Join(dir, ".pravaha"), 0o700)
+				os.MkdirAll(filepath.Join(dir, ".srustiops"), 0o700)
 				os.WriteFile(filepath.Join(dir, filepath.FromSlash(spec.GCPExternalFile)), []byte(`{"type":"external_account","audience":"//iam.googleapis.com/projects/1/locations/global/workloadIdentityPools/p/providers/p","subject_token_type":"urn:ietf:params:oauth:token-type:jwt","token_url":"https://sts.googleapis.com/v1/token","credential_source":{"file":"/dev/null"}}`), 0o600)
 			}
 			run := func(args ...string) {

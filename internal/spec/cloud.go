@@ -19,12 +19,28 @@ import (
 //   - "ambient": the runner uses the workload identity of where it runs (EKS IRSA /
 //     Pod Identity, GKE workload identity, Azure managed identity), optionally
 //     assuming a narrower role. Nothing is injected.
+//   - "vault":   long-lived credentials (an AWS access key, a GCP service account
+//     key, an Azure client secret) kept in the tenant's OpenBao/Vault. The
+//     connection holds only vault:// references; the runner reads the values
+//     at run time with the run's own token and hands them to OpenTofu as
+//     environment variables. For accounts where an identity provider cannot be
+//     set up (for example a free tier, or an issuer the cloud cannot reach).
 type Cloud struct {
-	Provider string      `json:"provider"` // none | aws | gcp | azure
-	Auth     string      `json:"auth,omitempty"`
-	AWS      *AWSCloud   `json:"aws,omitempty"`
-	GCP      *GCPCloud   `json:"gcp,omitempty"`
-	Azure    *AzureCloud `json:"azure,omitempty"`
+	Provider    string            `json:"provider"` // none | aws | gcp | azure
+	Auth        string            `json:"auth,omitempty"`
+	AWS         *AWSCloud         `json:"aws,omitempty"`
+	GCP         *GCPCloud         `json:"gcp,omitempty"`
+	Azure       *AzureCloud       `json:"azure,omitempty"`
+	Credentials *CloudCredentials `json:"credentials,omitempty"` // vault mode: references only
+}
+
+// CloudCredentials are references (vault://mount/path#key) to credentials in
+// the tenant's secret store; never the values.
+type CloudCredentials struct {
+	AccessKeyID       string `json:"access_key_id,omitempty"`       // AWS
+	SecretAccessKey   string `json:"secret_access_key,omitempty"`   // AWS
+	ServiceAccountKey string `json:"service_account_key,omitempty"` // GCP: the key file's JSON
+	ClientSecret      string `json:"client_secret,omitempty"`       // Azure
 }
 
 type AWSCloud struct {
@@ -73,8 +89,47 @@ func DecodeCloud(b []byte) (*Cloud, error) {
 func (c *Cloud) Validate() error {
 	var errs []error
 	add := func(f string, a ...any) { errs = append(errs, fmt.Errorf(f, a...)) }
-	if c.Provider != "none" && c.Auth != "oidc" && c.Auth != "ambient" {
-		add(`auth must be "oidc" or "ambient"`)
+	if c.Provider != "none" && c.Auth != "oidc" && c.Auth != "ambient" && c.Auth != "vault" {
+		add(`auth must be "oidc", "ambient" or "vault"`)
+	}
+	vault := c.Auth == "vault"
+	ref := func(name, v string, required bool) {
+		if v == "" {
+			if required {
+				add("credentials.%s is required in vault mode (a vault://mount/path#key reference)", name)
+			}
+			return
+		}
+		if !secretRe.MatchString(v) {
+			add("credentials.%s must be a vault://mount/path#key reference, never the value itself", name)
+		}
+	}
+	if c.Credentials != nil && !vault {
+		add(`credentials are only used with auth "vault"`)
+	}
+	if vault {
+		cr := c.Credentials
+		if cr == nil {
+			cr = &CloudCredentials{}
+		}
+		switch c.Provider {
+		case "aws":
+			ref("access_key_id", cr.AccessKeyID, true)
+			ref("secret_access_key", cr.SecretAccessKey, true)
+			if cr.ServiceAccountKey != "" || cr.ClientSecret != "" {
+				add("aws credentials take access_key_id and secret_access_key only")
+			}
+		case "gcp":
+			ref("service_account_key", cr.ServiceAccountKey, true)
+			if cr.AccessKeyID != "" || cr.SecretAccessKey != "" || cr.ClientSecret != "" {
+				add("gcp credentials take service_account_key only")
+			}
+		case "azure":
+			ref("client_secret", cr.ClientSecret, true)
+			if cr.AccessKeyID != "" || cr.SecretAccessKey != "" || cr.ServiceAccountKey != "" {
+				add("azure credentials take client_secret only")
+			}
+		}
 	}
 	set := 0
 	for _, p := range []bool{c.AWS != nil, c.GCP != nil, c.Azure != nil} {
@@ -95,14 +150,14 @@ func (c *Cloud) Validate() error {
 		if !awsRegionRe.MatchString(c.AWS.Region) {
 			add("aws.region is invalid")
 		}
-		if !roleARNRe.MatchString(c.AWS.RoleARN) {
+		if !(vault && c.AWS.RoleARN == "") && !roleARNRe.MatchString(c.AWS.RoleARN) {
 			add("aws.role_arn must be an IAM role ARN")
 		}
 		if c.AWS.PlanRoleARN != "" && (c.Auth != "oidc" || !roleARNRe.MatchString(c.AWS.PlanRoleARN)) {
 			add("aws.plan_role_arn must be an IAM role ARN and needs oidc auth")
 		}
-		if c.AWS.ExternalID != "" && (c.Auth != "ambient" || !extIDRe.MatchString(c.AWS.ExternalID)) {
-			add("aws.external_id is only valid in ambient mode and must be 2-1000 safe characters")
+		if c.AWS.ExternalID != "" && (c.Auth == "oidc" || c.AWS.RoleARN == "" || !extIDRe.MatchString(c.AWS.ExternalID)) {
+			add("aws.external_id needs a role_arn to assume (ambient or vault mode) and must be 2-1000 safe characters")
 		}
 	case "gcp":
 		if c.GCP == nil || set != 1 {
@@ -112,7 +167,7 @@ func (c *Cloud) Validate() error {
 		if !gcpProjRe.MatchString(c.GCP.ProjectID) || !gcpRegionRe.MatchString(c.GCP.Region) {
 			add("gcp.project_id or gcp.region is invalid")
 		}
-		if !gcpSARe.MatchString(c.GCP.ServiceAccountEmail) {
+		if !(vault && c.GCP.ServiceAccountEmail == "") && !gcpSARe.MatchString(c.GCP.ServiceAccountEmail) {
 			add("gcp.service_account_email must be a service account email")
 		}
 		if c.GCP.PlanServiceAccountEmail != "" && !gcpSARe.MatchString(c.GCP.PlanServiceAccountEmail) {
@@ -169,7 +224,7 @@ func (c *Cloud) PhaseCredentials(stack, phase string) (map[string]string, map[st
 		}
 		return apply
 	}
-	session := "pravaha-" + phase + "-" + stack
+	session := "srustiops-" + phase + "-" + stack
 	if len(session) > 64 {
 		session = session[:64]
 	}
@@ -193,7 +248,7 @@ func (c *Cloud) PhaseCredentials(stack, phase string) (map[string]string, map[st
 			}
 			b, _ := json.MarshalIndent(ext, "", "  ")
 			files[GCPExternalFile] = b
-		} else {
+		} else if sa != "" {
 			env["GOOGLE_IMPERSONATE_SERVICE_ACCOUNT"] = sa
 		}
 	case "azure":
@@ -206,4 +261,37 @@ func (c *Cloud) PhaseCredentials(stack, phase string) (map[string]string, map[st
 var PhaseEnvAllowed = map[string]bool{
 	"AWS_ROLE_ARN": true, "AWS_WEB_IDENTITY_TOKEN_FILE": true, "AWS_ROLE_SESSION_NAME": true,
 	"GOOGLE_IMPERSONATE_SERVICE_ACCOUNT": true, "ARM_CLIENT_ID": true,
+}
+
+// SecretEnvAllowed is the only environment a runner fills from the secret
+// store (vault mode), each from a reference the control plane names.
+var SecretEnvAllowed = map[string]bool{
+	"AWS_ACCESS_KEY_ID": true, "AWS_SECRET_ACCESS_KEY": true, "GOOGLE_CREDENTIALS": true, "ARM_CLIENT_SECRET": true,
+}
+
+// SecretEnv maps environment variables to the references the runner reads
+// them from (vault mode).
+func (c *Cloud) SecretEnv() map[string]string {
+	if c.Auth != "vault" || c.Credentials == nil {
+		return nil
+	}
+	cr := c.Credentials
+	switch c.Provider {
+	case "aws":
+		return map[string]string{"AWS_ACCESS_KEY_ID": cr.AccessKeyID, "AWS_SECRET_ACCESS_KEY": cr.SecretAccessKey}
+	case "gcp":
+		return map[string]string{"GOOGLE_CREDENTIALS": cr.ServiceAccountKey}
+	case "azure":
+		return map[string]string{"ARM_CLIENT_SECRET": cr.ClientSecret}
+	}
+	return nil
+}
+
+// ParseSecretRef splits vault://mount/path#key.
+func ParseSecretRef(ref string) (mount, path, key string, ok bool) {
+	m := secretRe.FindStringSubmatch(ref)
+	if m == nil {
+		return "", "", "", false
+	}
+	return m[1], m[2], m[3], true
 }

@@ -13,7 +13,7 @@ var patterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(aws_secret_access_key|secret_key|client_secret|password|passphrase|token)(["'\s:=]+)[^\s"',]{8,}`), // key = value
 	regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`),
 	regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b`), // JWTs
-	regexp.MustCompile(`\bpvh_[a-z]+_[A-Za-z0-9_-]{20,}\b`),                                 // platform tokens
+	regexp.MustCompile(`\bsop_[a-z]+_[A-Za-z0-9_-]{20,}\b`),                                 // platform tokens
 	regexp.MustCompile(`\bgh[pousr]_[A-Za-z0-9]{36,}\b`),                                    // GitHub tokens
 	regexp.MustCompile(`(?i)\bAccountKey=[A-Za-z0-9+/=]{20,}`),                              // Azure storage keys
 }

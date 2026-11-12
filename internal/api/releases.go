@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/contracts"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/release"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/spec"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/store"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/contracts"
+	"github.com/itsPavanFeed/srustiops-backend/internal/release"
+	"github.com/itsPavanFeed/srustiops-backend/internal/spec"
+	"github.com/itsPavanFeed/srustiops-backend/internal/store"
 )
 
 // Releases: the platform builds what the tenant keeps in Git (the modules
@@ -292,7 +292,7 @@ func (s *Server) runBuild(ctx context.Context, rel *store.Release, c *ReleaseSou
 	var res *release.Result
 	if rel.Kind == release.Modules {
 		res = release.BuildModules(ctx, release.ModulesInput{Files: files, Path: c.Path, Tenant: s.cfg.Tenant, Revision: rel.Revision,
-			Fetch: &release.Registry{Base: s.cfg.RegistryURL}})
+			Fetch: s.fetcher})
 	} else {
 		reserved, err := s.store.ConsolePolicyNames(ctx)
 		if err != nil {
@@ -475,14 +475,16 @@ func (s *Server) releaseSyncer(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		for _, kind := range []string{release.Modules, release.Policies} {
-			c, ok := s.releaseSource(ctx, kind)
-			if !ok || !c.Enabled || time.Since(last[kind]) < time.Duration(c.PollSeconds)*time.Second {
-				continue
+		s.store.TryLock(ctx, 7313, func(ctx context.Context) { // one replica polls the release repositories
+			for _, kind := range []string{release.Modules, release.Policies} {
+				c, ok := s.releaseSource(ctx, kind)
+				if !ok || !c.Enabled || time.Since(last[kind]) < time.Duration(c.PollSeconds)*time.Second {
+					continue
+				}
+				last[kind] = time.Now()
+				s.buildIfMoved(ctx, kind)
 			}
-			last[kind] = time.Now()
-			s.buildIfMoved(ctx, kind)
-		}
+		})
 	}
 }
 

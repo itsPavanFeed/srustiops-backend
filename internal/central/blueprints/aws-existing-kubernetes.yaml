@@ -1,0 +1,55 @@
+# The client has an AWS account and an EKS cluster: fill only what SrustiOps
+# needs next to it (landing: KMS, bucket, database, endpoints, IRSA), then
+# install the tenant chart into the cluster.
+id: aws-existing-kubernetes
+title: Existing EKS cluster
+cloud: aws
+mode: existing_cluster
+target: kubernetes
+inputs:
+  - {name: cluster_name, required: true, label: "EKS cluster name", pattern: "^[a-zA-Z][a-zA-Z0-9-]{0,99}$"}
+  - {name: vpc_id, required: true, label: "Its VPC ID", pattern: "^vpc-[0-9a-f]{8,17}$"}
+  - {name: vpc_cidr, required: true, label: "VPC CIDR", pattern: "^(\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$"}
+  - {name: private_subnet_ids, required: true, label: "Private subnet IDs (comma-separated, two zones)", list: true, pattern: "^subnet-[0-9a-f]{8,17}$"}
+  - {name: eks_oidc_provider_arn, required: true, label: "The cluster's IAM OIDC provider ARN", pattern: "^arn:aws:iam::\\d{12}:oidc-provider/.+$"}
+  - {name: eks_oidc_issuer, required: true, label: "The cluster's OIDC issuer URL", pattern: "^(https://)?oidc\\.eks\\..+$"}
+stacks:
+  - name: landing
+    role: data
+    spec: |
+      modules:
+        - name: landing
+          module: aws-srustiops-landing
+          inputs:
+            name: {{ .Name }}
+            vpc_id: {{ .Inputs.vpc_id }}
+            vpc_cidr: {{ .Inputs.vpc_cidr }}
+            private_subnet_ids: {{ json .Inputs.private_subnet_ids }}
+            eks_oidc_provider_arn: {{ .Inputs.eks_oidc_provider_arn }}
+            eks_oidc_issuer: {{ .Inputs.eks_oidc_issuer }}
+            db_instance_class: {{ .Size.db_instance_class }}
+            db_multi_az: {{ .Size.db_multi_az }}
+            tags: {srustiops-workspace: {{ .Slug }}}
+  - name: install
+    role: install
+    spec: |
+      modules:
+        - name: install
+          module: aws-srustiops-eks-install
+          inputs:
+            tenant: {{ .Slug }}
+            cluster_name: {{ .Inputs.cluster_name }}
+            chart_repository: {{ json .Platform.ChartRepository }}
+            chart_version: {{ json .Platform.ChartVersion }}
+            image_repo: {{ json .Platform.ImageRepo }}
+            image_tag: {{ json .Platform.ImageTag }}
+            gateway_url: {{ json .Platform.GatewayURL }}
+            central_url: {{ json .Platform.CentralURL }}
+            gateway_ca: {{ json .Platform.GatewayCA }}
+            install_token: {{ json .InstallToken }}
+            replicas: {{ .Size.replicas }}
+            database_endpoint: {"$ref": "stack/{{ stack "landing" }}/landing.database_endpoint"}
+            database_password_secret_arn: {"$ref": "stack/{{ stack "landing" }}/landing.database_password_secret_arn"}
+            bucket: {"$ref": "stack/{{ stack "landing" }}/landing.bucket"}
+            tenant_role_arn: {"$ref": "stack/{{ stack "landing" }}/landing.tenant_role_arn"}
+            runner_role_arn: {"$ref": "stack/{{ stack "landing" }}/landing.runner_role_arn"}

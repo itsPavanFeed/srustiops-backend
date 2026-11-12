@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/spec"
+	"github.com/itsPavanFeed/srustiops-backend/internal/spec"
 )
 
 // The tenant's secret store (OpenBao or HashiCorp Vault). It holds no
@@ -49,6 +49,9 @@ func (s *Server) putSecretStore(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 422, "invalid secret store", errLines(err)...)
 		return
 	}
+	if s.dryRun(w, r) {
+		return
+	}
 	if err := s.store.PutSetting(r.Context(), secretStoreKey, v, user(r).Subject); err != nil {
 		s.writeStoreErr(w, err, "")
 		return
@@ -59,6 +62,9 @@ func (s *Server) putSecretStore(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteSecretStore(w http.ResponseWriter, r *http.Request) {
 	if !tenantAdmin(w, r) {
+		return
+	}
+	if s.dryRun(w, r) {
 		return
 	}
 	if err := s.store.DeleteSetting(r.Context(), secretStoreKey); err != nil {

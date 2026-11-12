@@ -2,3 +2,7 @@
 bin/
 .env
 *.pem
+.dev-*/
+*.pkg
+.terraform/
+.terraform.lock.hcl

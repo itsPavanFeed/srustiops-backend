@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-const requireTags = `package pravaha.policy
+const requireTags = `package srustiops.policy
 
 deny contains {"msg": sprintf("%s has no team tag", [r.address]), "address": r.address} if {
 	some r in input.summary.resources
@@ -36,14 +36,14 @@ func TestPolicySets(t *testing.T) {
 	}
 	for _, bad := range []string{
 		"package other\ndeny contains 1 if true",
-		"package pravaha.policy\ndeny contains x if {",
+		"package srustiops.policy\ndeny contains x if {",
 	} {
 		if Compile(bad) == nil {
 			t.Errorf("accepted %q", bad)
 		}
 	}
 	// A runtime error fails closed.
-	broken := "package pravaha.policy\ndeny contains x if { x := 1 / input.zero }"
+	broken := "package srustiops.policy\ndeny contains x if { x := 1 / input.zero }"
 	if v := Evaluate(context.Background(), []Set{{Name: "b", Level: "advisory", Module: broken}}, map[string]any{"zero": 0}); len(v) != 1 || v[0].Level != "hard" {
 		t.Fatalf("broken policy must fail closed: %+v", v)
 	}

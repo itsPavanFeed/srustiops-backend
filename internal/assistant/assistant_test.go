@@ -12,7 +12,7 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go/option"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
 )
 
 func testCatalog(t *testing.T) *catalog.Catalog {

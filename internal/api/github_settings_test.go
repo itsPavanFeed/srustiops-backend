@@ -9,13 +9,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/config"
+	"github.com/itsPavanFeed/srustiops-backend/internal/config"
 )
 
 func TestGitHubSettingsInEnvFile(t *testing.T) {
 	dir := t.TempDir()
 	env := filepath.Join(dir, ".env")
-	os.WriteFile(env, []byte("POSTGRES_PASSWORD=keep\nPRAVAHA_GITHUB_WEBHOOK_SECRET=from-file-1234567890\n"), 0o600)
+	os.WriteFile(env, []byte("POSTGRES_PASSWORD=keep\nSRUSTIOPS_GITHUB_WEBHOOK_SECRET=from-file-1234567890\n"), 0o600)
 	s := &Server{cfg: &config.Server{EnvFile: env}, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	ctx := context.Background()
 	if err := s.ghReload(ctx); err != nil {
@@ -33,7 +33,7 @@ func TestGitHubSettingsInEnvFile(t *testing.T) {
 		t.Fatalf("after save: %+v", g)
 	}
 	b, _ := os.ReadFile(env)
-	for _, want := range []string{"POSTGRES_PASSWORD=keep", "PRAVAHA_GITHUB_APP_ID=5450441", "PRAVAHA_GITHUB_APP_INSTALLATION_ID=7", "PRAVAHA_GITHUB_APP_PRIVATE_KEY_FILE=" + defaultKeyFile} {
+	for _, want := range []string{"POSTGRES_PASSWORD=keep", "SRUSTIOPS_GITHUB_APP_ID=5450441", "SRUSTIOPS_GITHUB_APP_INSTALLATION_ID=7", "SRUSTIOPS_GITHUB_APP_PRIVATE_KEY_FILE=" + defaultKeyFile} {
 		if !strings.Contains(string(b), want) {
 			t.Fatalf("missing %q in:\n%s", want, b)
 		}
@@ -45,7 +45,7 @@ func TestGitHubSettingsInEnvFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ = os.ReadFile(env)
-	if strings.Contains(string(b), "PRAVAHA_GITHUB") || !strings.Contains(string(b), "POSTGRES_PASSWORD=keep") || s.ghState().OK {
+	if strings.Contains(string(b), "SRUSTIOPS_GITHUB") || !strings.Contains(string(b), "POSTGRES_PASSWORD=keep") || s.ghState().OK {
 		t.Fatalf("after clear:\n%s", b)
 	}
 	if _, err := os.Stat(filepath.Join(dir, defaultKeyFile)); !os.IsNotExist(err) {

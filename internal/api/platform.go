@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/release"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/spec"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/release"
+	"github.com/itsPavanFeed/srustiops-backend/internal/spec"
 )
 
 // platform is what stacks are validated and generated against: the catalog of
@@ -18,7 +18,7 @@ import (
 type platform struct {
 	cat      *catalog.Catalog
 	defaults *catalog.Overlay
-	release  *releaseInfo // nil: the catalog bundled with the binary (PRAVAHA_CATALOG_DIR)
+	release  *releaseInfo // nil: the catalog bundled with the binary (SRUSTIOPS_CATALOG_DIR)
 }
 
 // releaseInfo identifies the deployed module release and its vendored modules.

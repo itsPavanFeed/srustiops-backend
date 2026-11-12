@@ -1,146 +1,52 @@
-# Evaluation install of the full topology:
-#   central   central plane: web UI, identity, tenant directory, routing   https://localhost:8443
-#   tenant    one tenant plane: its backend, database and state             (internal, mTLS from central)
-#   temporal  orchestrates the tenant's run lifecycles
-#   runner    executes OpenTofu for that tenant
-# In production the tenant plane and runner run in the client's own cloud;
-# central reaches the tenant over mTLS and only needs its URL and CA.
-#
-#   cp .env.example .env    # fill in the secrets
-#   docker compose up -d --build central tenant
-#   docker compose run --rm --no-deps central central bootstrap -email you@example.com
-#   # sign in, onboard tenant "$PRAVAHA_TENANT" with backend https://tenant:9443 (see README), register a runner,
-#   # put its token in .env, then: docker compose up -d runner
-name: cloud-pravaha
-
-x-build: &build
-  context: .
-  additional_contexts:
-    web: ../cloud-pravaha-web
-    catalog: ../cloud-pravaha-modules/catalog
-
-x-image: &image
-  image: cloud-pravaha-server:local
-  build: { <<: *build, target: server }
-  read_only: true
-  security_opt: ["no-new-privileges:true"]
-  cap_drop: ["ALL"]
-
 services:
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: pravaha
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-      - ./deploy/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck:
-      test: ["CMD", "pg_isready", "-U", "pravaha", "-d", "tenant"]
-      interval: 3s
-      retries: 30
-    networks: [internal]
-
-  # Temporal orchestrates run lifecycles (durable timers, drift cron). This is the
-  # single-binary dev server for evaluation; use a Temporal cluster or Temporal
-  # Cloud in production.
-  temporal:
-    image: temporalio/temporal:latest
-    command: ["server", "start-dev", "--ip", "0.0.0.0"]
-    healthcheck:
-      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
-      interval: 3s
-      retries: 40
-    networks: [internal]
-
-  # Development PKI: a local CA, server certificates for central and the tenant,
-  # and central's mTLS client certificate. Replace with your own PKI in production.
-  certs-central:
-    <<: *image
-    command: ["dev-cert", "-dir", "/certs", "-name", "central", "-host", "localhost,127.0.0.1,central"]
-    volumes: ["certs:/certs"]
-    restart: "no"
-    networks: [internal]
-  certs-client:
-    <<: *image
-    command: ["dev-cert", "-dir", "/certs", "-name", "central-client", "-client"]
-    volumes: ["certs:/certs"]
-    depends_on: { certs-central: { condition: service_completed_successfully } }
-    restart: "no"
-    networks: [internal]
-  certs-tenant:
-    <<: *image
-    command: ["dev-cert", "-dir", "/certs", "-name", "tenant", "-host", "tenant"]
-    volumes: ["certs:/certs"]
-    depends_on: { certs-client: { condition: service_completed_successfully } }
-    restart: "no"
-    networks: [internal]
-
-  central:
-    <<: *image
-    command: ["central"]
-    depends_on:
-      postgres: { condition: service_healthy }
-      certs-tenant: { condition: service_completed_successfully }
-    environment:
-      PRAVAHA_DATABASE_URL: postgres://pravaha:${POSTGRES_PASSWORD}@postgres:5432/central?sslmode=disable
-      PRAVAHA_MASTER_KEY: ${CENTRAL_MASTER_KEY:?set CENTRAL_MASTER_KEY in .env}
-      PRAVAHA_PUBLIC_URL: ${PRAVAHA_PUBLIC_URL:-https://localhost:8443}
-      PRAVAHA_WEBHOOK_BASE_URL: ${PRAVAHA_WEBHOOK_BASE_URL:-}  # public address for GitHub App webhooks
-      PRAVAHA_LISTEN: ":8443"
-      PRAVAHA_TLS_CERT: /certs/central.pem
-      PRAVAHA_TLS_KEY: /certs/central-key.pem
-      PRAVAHA_CLIENT_CERT: /certs/central-client.pem
-      PRAVAHA_CLIENT_KEY: /certs/central-client-key.pem
-    volumes: ["certs:/certs:ro"]
-    ports: ["127.0.0.1:8443:8443"]
-    networks: [internal]
-
+    environment: { POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}", POSTGRES_DB: srustiops }
+    volumes: [pg:/var/lib/postgresql/data]
+    healthcheck: { test: [CMD, pg_isready, -U, postgres], interval: 3s, retries: 20 }
   tenant:
-    <<: *image
-    command: ["tenant"]
-    depends_on:
-      postgres: { condition: service_healthy }
-      certs-tenant: { condition: service_completed_successfully }
-      temporal: { condition: service_healthy }
+    image: docker.io/mukkarapavankumarreddy/srustiops-server:0.4.0
+    command: [tenant]
+    user: "${PUID}:${PGID}"
+    extra_hosts: ["host.docker.internal:host-gateway"]
     environment:
-      PRAVAHA_DATABASE_URL: postgres://pravaha:${POSTGRES_PASSWORD}@postgres:5432/tenant?sslmode=disable
-      PRAVAHA_MASTER_KEY: ${TENANT_MASTER_KEY:?set TENANT_MASTER_KEY in .env}
-      PRAVAHA_TENANT: ${PRAVAHA_TENANT:-main}
-      PRAVAHA_PUBLIC_URL: https://tenant:9443
-      PRAVAHA_LISTEN: ":9443"
-      PRAVAHA_TLS_CERT: /certs/tenant.pem
-      PRAVAHA_TLS_KEY: /certs/tenant-key.pem
-      PRAVAHA_CENTRAL_URL: https://central:8443          # where to fetch central's keys
-      PRAVAHA_CENTRAL_ISSUER: ${PRAVAHA_PUBLIC_URL:-https://localhost:8443}  # the issuer central signs as
-      PRAVAHA_CENTRAL_CA_FILE: /certs/ca.pem
-      PRAVAHA_CENTRAL_CLIENT_CA: /certs/ca.pem
-      PRAVAHA_TEMPORAL_ADDRESS: temporal:7233
-      PRAVAHA_ASSISTANT_API_KEY: ${PRAVAHA_ASSISTANT_API_KEY:-} # optional: enables the assistant
-    volumes: ["certs:/certs:ro"]
-    restart: unless-stopped
-    networks: [internal]
-
-  runner:
-    <<: *image
-    image: cloud-pravaha-runner:local
-    build: { <<: *build, target: runner }
-    command: ["runner"]
+      SRUSTIOPS_TENANT: docker
+      SRUSTIOPS_LISTEN: ":8443"
+      SRUSTIOPS_PUBLIC_URL: https://tenant:8443
+      SRUSTIOPS_DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@postgres:5432/srustiops?sslmode=disable
+      SRUSTIOPS_MASTER_KEY_FILE: /srustiops/keys/master-key
+      SRUSTIOPS_TLS_CERT: /srustiops/tls/tls.crt
+      SRUSTIOPS_TLS_KEY: /srustiops/tls/tls.key
+      SRUSTIOPS_CENTRAL_URL: https://host.docker.internal:8091
+      SRUSTIOPS_CENTRAL_ISSUER: http://127.0.0.1:8090
+      SRUSTIOPS_CENTRAL_CA_FILE: /srustiops/gateway-ca.pem
+      SRUSTIOPS_CENTRAL_CLIENT_CA: /srustiops/central-ca/ca.crt
+      SRUSTIOPS_BOOTSTRAP_RUNNER_TOKEN_FILE: /srustiops/keys/runner-token
+    volumes: [./srustiops:/srustiops:ro]
+    depends_on: { postgres: { condition: service_healthy } }
+  link:
+    image: docker.io/mukkarapavankumarreddy/srustiops-server:0.4.0
+    command: [link]
+    user: "${PUID}:${PGID}"
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    environment:
+      SRUSTIOPS_TENANT: docker
+      SRUSTIOPS_LINK_URL: https://host.docker.internal:8091
+      SRUSTIOPS_LINK_TARGET: tenant:8443
+      SRUSTIOPS_LINK_STATE_DIR: /state
+      SRUSTIOPS_LINK_ENROLL_TOKEN_FILE: /srustiops/link-enroll/token
+      SRUSTIOPS_LINK_SERVER_CA: /srustiops/gateway-ca.pem
+    volumes: [./srustiops:/srustiops:ro, ./link-state:/state]
     depends_on: [tenant]
+  runner:
+    image: docker.io/mukkarapavankumarreddy/srustiops-runner:0.4.0
+    command: [runner]
+    user: "${PUID}:${PGID}"
     environment:
-      PRAVAHA_SERVER_URL: https://tenant:9443
-      PRAVAHA_RUNNER_TOKEN: ${PRAVAHA_RUNNER_TOKEN:-}
-      PRAVAHA_STATE_KEY: ${PRAVAHA_STATE_KEY:?set PRAVAHA_STATE_KEY in .env}
-      PRAVAHA_CA_FILE: /certs/ca.pem
-    volumes: ["certs:/certs:ro"]
-    # Providers execute from the per-run directory, so /tmp needs exec (still nosuid, nodev).
-    tmpfs: ["/tmp:size=2g,mode=1777,exec,nosuid,nodev"]
-    restart: unless-stopped
-    networks: [internal]
-
-volumes:
-  pgdata:
-  certs:
-
-networks:
-  internal:
+      SRUSTIOPS_SERVER_URL: https://tenant:8443
+      SRUSTIOPS_RUNNER_TOKEN_FILE: /srustiops/keys/runner-token
+      SRUSTIOPS_STATE_KEY_FILE: /srustiops/keys/state-key
+      SRUSTIOPS_CA_FILE: /srustiops/tls/ca.crt
+    volumes: [./srustiops:/srustiops:ro]
+    depends_on: [tenant]
+volumes: { pg: {} }

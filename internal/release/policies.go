@@ -13,8 +13,8 @@ import (
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/tester"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/opapolicy"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/yamlx"
+	"github.com/itsPavanFeed/srustiops-backend/internal/opapolicy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/yamlx"
 )
 
 // PoliciesInput is what a policy release is built from. The folder holds:
@@ -27,7 +27,7 @@ import (
 // next to each set, optionally:
 //
 //	<set>_test.rego   Rego unit tests (test_* rules), run on every build
-//	<set>.yaml        apiVersion: pravaha/v1 / kind: PolicySet / level: hard|advisory / description
+//	<set>.yaml        apiVersion: srustiops/v1 / kind: PolicySet / level: hard|advisory / description
 //
 // Only global/ and this tenant's folder go into the tenant's release.
 type PoliciesInput struct {
@@ -112,8 +112,8 @@ func BuildPolicies(ctx context.Context, in PoliciesInput) *Result {
 				layoutErrs = append(layoutErrs, fmt.Errorf("%s.yaml: %v", strings.TrimSuffix(f, ".rego"), err))
 				continue
 			}
-			if m.APIVersion != "pravaha/v1" || m.Kind != "PolicySet" || (m.Level != "" && m.Level != "hard" && m.Level != "advisory") {
-				layoutErrs = append(layoutErrs, fmt.Errorf("%s.yaml: needs apiVersion pravaha/v1, kind PolicySet and level hard or advisory", strings.TrimSuffix(f, ".rego")))
+			if m.APIVersion != "srustiops/v1" || m.Kind != "PolicySet" || (m.Level != "" && m.Level != "hard" && m.Level != "advisory") {
+				layoutErrs = append(layoutErrs, fmt.Errorf("%s.yaml: needs apiVersion srustiops/v1, kind PolicySet and level hard or advisory", strings.TrimSuffix(f, ".rego")))
 				continue
 			}
 			s.meta = &m

@@ -17,8 +17,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/redact"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/redact"
 )
 
 const (
@@ -41,7 +41,8 @@ var (
 	importToRe = regexp.MustCompile(`^module\.([a-z][a-z0-9_]{0,40})(\.module\.[A-Za-z_][A-Za-z0-9_-]{0,63}(\[(\d{1,4}|"[A-Za-z0-9_.:/@-]{1,128}")\])?){0,4}\.[a-z][a-z0-9_]{0,63}\.[A-Za-z_][A-Za-z0-9_-]{0,63}(\[(\d{1,4}|"[A-Za-z0-9_.:/@-]{1,128}")\])?$`)
 	importIDRe = regexp.MustCompile(`^[\x21-\x7e]+$`)
 	// vault://<mount>/<path>#<key>: a KV v2 secret in OpenBao or Vault.
-	secretRe = regexp.MustCompile(`^vault://([A-Za-z0-9_.-]{1,64})/([A-Za-z0-9_.-]{1,64}(?:/[A-Za-z0-9_.-]{1,64}){0,7})#([A-Za-z0-9_.-]{1,128})$`)
+	installTokenRe = regexp.MustCompile(`^sop_i_[A-Za-z0-9_-]{20,}$`)
+	secretRe       = regexp.MustCompile(`^vault://([A-Za-z0-9_.-]{1,64})/([A-Za-z0-9_.-]{1,64}(?:/[A-Za-z0-9_.-]{1,64}){0,7})#([A-Za-z0-9_.-]{1,128})$`)
 )
 
 // Stack is what a user submits. It contains no expressions and no HCL.
@@ -66,6 +67,11 @@ type ModuleRef struct {
 	Module  string                     `json:"module,omitempty"`  // catalog id, e.g. "aws-vpc"
 	Version string                     `json:"version,omitempty"` // must be catalog-approved; empty = latest approved
 	Inputs  map[string]json.RawMessage `json:"inputs,omitempty"`
+	// BaselineGaps are parts of the enforced baseline an adopted resource
+	// lacks (a bucket without a policy), set so the adopted code matches what
+	// exists. Only values the kind's optional adopt imports declare are
+	// allowed; removing a gap is a reviewed change that adds the missing part.
+	BaselineGaps map[string]json.RawMessage `json:"baseline_gaps,omitempty"`
 }
 
 type Output struct {
@@ -180,6 +186,12 @@ func (s *Stack) ValidateWith(cat *catalog.Catalog, cloud string, opts Options) e
 				add("module %q: input %q: %v", m.Name, name, err)
 			}
 		}
+		for name, raw := range m.BaselineGaps {
+			var v any
+			if json.Unmarshal(raw, &v) != nil || !cm.Adopt.GapAllowed(name, v) {
+				add("module %q: baseline gap %q is not one %s allows (gaps record what an adopted resource lacks)", m.Name, name, cm.Kind)
+			}
+		}
 		vals, _ := effectiveInputs(cm, m, opts)
 		for _, in := range cm.Inputs {
 			if _, set := vals[in.Name]; in.Required && !set {
@@ -258,7 +270,13 @@ func validateValue(in *catalog.Input, raw json.RawMessage, self string, instance
 	if err := noTemplates(v, 0, new(int)); err != nil {
 		return err
 	}
-	if err := noSecretValues(v); err != nil {
+	if in.OneTimeToken {
+		// The platform's install token: it works once and expires within an
+		// hour, so it is worthless once the tenant it installs has bootstrapped.
+		if s, ok := v.(string); !ok || !installTokenRe.MatchString(s) {
+			return errors.New("must be a one-time install token (sop_i_…)")
+		}
+	} else if err := noSecretValues(v); err != nil {
 		return err
 	}
 	switch in.Type {
@@ -613,13 +631,16 @@ type Vault struct {
 	AuthMount string `json:"auth_mount,omitempty"` // JWT auth mount; default "jwt"
 	Role      string `json:"role"`                 // JWT role runs log in as
 	Namespace string `json:"namespace,omitempty"`  // Vault Enterprise / OpenBao namespace
-	Audience  string `json:"audience,omitempty"`   // "aud" of the run's token; default "pravaha-vault"
+	Audience  string `json:"audience,omitempty"`   // "aud" of the run's token; default "srustiops-vault"
 }
 
 var (
 	vaultNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}(/[A-Za-z0-9_.-]{1,64}){0,3}$`)
 	audRe       = regexp.MustCompile(`^[A-Za-z0-9_.:/-]{1,128}$`)
 )
+
+// Mount is the JWT auth mount (default "jwt").
+func (v *Vault) Mount() string { return v.mount() }
 
 func (v *Vault) mount() string {
 	if v.AuthMount == "" {
@@ -631,7 +652,7 @@ func (v *Vault) mount() string {
 // TokenAudience is the audience runs' Vault tokens are issued for.
 func (v *Vault) TokenAudience() string {
 	if v.Audience == "" {
-		return "pravaha-vault"
+		return "srustiops-vault"
 	}
 	return v.Audience
 }

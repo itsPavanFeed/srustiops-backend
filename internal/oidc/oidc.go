@@ -67,7 +67,7 @@ type Claims struct {
 // Subject is the "sub" claim cloud trust policies match on. Environment names
 // are unique within an entity, so the entity is part of it.
 func Subject(entity, env, stack, phase string) string {
-	return "pravaha:entity:" + entity + ":env:" + env + ":stack:" + stack + ":phase:" + phase
+	return "srustiops:entity:" + entity + ":env:" + env + ":stack:" + stack + ":phase:" + phase
 }
 
 func (i *Issuer) Sign(c Claims, now time.Time) (string, error) {

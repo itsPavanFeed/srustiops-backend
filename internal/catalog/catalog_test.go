@@ -8,9 +8,9 @@ import (
 )
 
 func TestRealCatalogIsSegregatedByCloud(t *testing.T) {
-	c, err := Load("../../../cloud-pravaha-modules/catalog")
+	c, err := Load("../../../srustiops-modules/catalog")
 	if err != nil {
-		t.Skipf("sibling cloud-pravaha-modules repo not available: %v", err)
+		t.Skipf("sibling srustiops-modules repo not available: %v", err)
 	}
 	want := map[string]string{"aws-vpc": "aws", "gcp-network": "gcp", "azure-storage-account": "azure", "azure-naming": "", "cloudposse-label": ""}
 	for id, cloud := range want {
@@ -79,9 +79,9 @@ func TestLayoutRules(t *testing.T) {
 }
 
 func TestRealCatalogKinds(t *testing.T) {
-	c, err := Load("../../../cloud-pravaha-modules/catalog")
+	c, err := Load("../../../srustiops-modules/catalog")
 	if err != nil {
-		t.Skipf("sibling cloud-pravaha-modules repo not available: %v", err)
+		t.Skipf("sibling srustiops-modules repo not available: %v", err)
 	}
 	if m := c.Kind("S3Bucket"); m == nil || m.ID != "aws-s3-bucket" {
 		t.Fatalf("kind S3Bucket: %+v", m)

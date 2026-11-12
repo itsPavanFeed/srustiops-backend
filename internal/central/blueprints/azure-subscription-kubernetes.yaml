@@ -1,0 +1,80 @@
+# The client has only an Azure subscription: a VNet, an AKS cluster, the
+# landing pieces (PostgreSQL flexible server, Blob Storage, Key Vault,
+# Workload ID), then the tenant chart.
+id: azure-subscription-kubernetes
+title: New VNet and AKS cluster
+cloud: azure
+mode: account_only
+target: kubernetes
+inputs:
+  - {name: tenant_id, label: "Microsoft Entra tenant (directory) ID", required: true, pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"}
+  - {name: vnet_cidr, label: "VNet CIDR (a /16)", default: "10.62.0.0/16", pattern: "^(\\d{1,3}\\.){3}\\d{1,3}/16$"}
+stacks:
+  - name: network
+    role: service
+    spec: |
+      modules:
+        - name: network
+          module: azure-srustiops-network
+          inputs:
+            location: {{ .Region }}
+            name: {{ .Name }}
+            cidr: {{ .Inputs.vnet_cidr }}
+            tags: {srustiops-workspace: {{ .Slug }}}
+  - name: cluster
+    role: service
+    spec: |
+      modules:
+        - name: aks
+          module: azure-srustiops-aks
+          inputs:
+            location: {{ .Region }}
+            name: {{ .Name }}
+            resource_group: {"$ref": "stack/{{ stack "network" }}/network.resource_group"}
+            subnet_id: {"$ref": "stack/{{ stack "network" }}/network.aks_subnet_id"}
+            vm_size: {{ .Size.aks_vm }}
+            nodes_min: {{ .Size.nodes_min }}
+            nodes_max: {{ .Size.nodes_max }}
+            tags: {srustiops-workspace: {{ .Slug }}}
+  - name: landing
+    role: data
+    spec: |
+      modules:
+        - name: landing
+          module: azure-srustiops-landing
+          inputs:
+            location: {{ .Region }}
+            name: {{ .Name }}
+            resource_group: {"$ref": "stack/{{ stack "network" }}/network.resource_group"}
+            postgres_subnet_id: {"$ref": "stack/{{ stack "network" }}/network.postgres_subnet_id"}
+            endpoints_subnet_id: {"$ref": "stack/{{ stack "network" }}/network.endpoints_subnet_id"}
+            postgres_dns_zone_id: {"$ref": "stack/{{ stack "network" }}/network.postgres_dns_zone_id"}
+            blob_dns_zone_id: {"$ref": "stack/{{ stack "network" }}/network.blob_dns_zone_id"}
+            aks_oidc_issuer: {"$ref": "stack/{{ stack "cluster" }}/aks.oidc_issuer_url"}
+            db_sku: {{ .Size.pg_sku }}
+            db_high_availability: {{ .Size.db_ha }}
+            tags: {srustiops-workspace: {{ .Slug }}}
+  - name: install
+    role: install
+    spec: |
+      modules:
+        - name: install
+          module: azure-srustiops-aks-install
+          inputs:
+            tenant: {{ .Slug }}
+            cluster_name: {"$ref": "stack/{{ stack "cluster" }}/aks.cluster_name"}
+            resource_group: {"$ref": "stack/{{ stack "network" }}/network.resource_group"}
+            chart_repository: {{ json .Platform.ChartRepository }}
+            chart_version: {{ json .Platform.ChartVersion }}
+            image_repo: {{ json .Platform.ImageRepo }}
+            image_tag: {{ json .Platform.ImageTag }}
+            gateway_url: {{ json .Platform.GatewayURL }}
+            central_url: {{ json .Platform.CentralURL }}
+            gateway_ca: {{ json .Platform.GatewayCA }}
+            install_token: {{ json .InstallToken }}
+            replicas: {{ .Size.replicas }}
+            database_host: {"$ref": "stack/{{ stack "landing" }}/landing.database_host"}
+            key_vault_id: {"$ref": "stack/{{ stack "landing" }}/landing.key_vault_id"}
+            storage_account: {"$ref": "stack/{{ stack "landing" }}/landing.storage_account"}
+            tenant_client_id: {"$ref": "stack/{{ stack "landing" }}/landing.tenant_client_id"}
+            runner_client_id: {"$ref": "stack/{{ stack "landing" }}/landing.runner_client_id"}

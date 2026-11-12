@@ -1,0 +1,80 @@
+# The client has only a GCP project: a VPC, a GKE cluster, the landing
+# pieces (Cloud SQL, the CMEK bucket, Workload Identity), then the tenant chart.
+id: gcp-project-kubernetes
+title: New VPC and GKE cluster
+cloud: gcp
+mode: account_only
+target: kubernetes
+inputs:
+  - {name: project_number, label: "Project number (IAM → Settings)", required: true, pattern: "^\\d{6,20}$"}
+  - {name: vpc_cidr, label: "VPC CIDR (a /16)", default: "10.52.0.0/16", pattern: "^(\\d{1,3}\\.){3}\\d{1,3}/16$"}
+stacks:
+  - name: network
+    role: service
+    spec: |
+      modules:
+        - name: network
+          module: gcp-srustiops-network
+          inputs:
+            project: {{ json .Account }}
+            region: {{ .Region }}
+            name: {{ .Name }}
+            cidr: {{ .Inputs.vpc_cidr }}
+  - name: cluster
+    role: service
+    spec: |
+      modules:
+        - name: gke
+          module: gcp-srustiops-gke
+          inputs:
+            project: {{ json .Account }}
+            region: {{ .Region }}
+            name: {{ .Name }}
+            network: {"$ref": "stack/{{ stack "network" }}/network.network"}
+            subnetwork: {"$ref": "stack/{{ stack "network" }}/network.subnetwork"}
+            pods_range: {"$ref": "stack/{{ stack "network" }}/network.pods_range"}
+            services_range: {"$ref": "stack/{{ stack "network" }}/network.services_range"}
+            machine_type: {{ .Size.gke_machine }}
+            nodes_min: {{ .Size.nodes_min }}
+            nodes_max: {{ .Size.nodes_max }}
+            labels: {srustiops-workspace: {{ .Slug }}}
+  - name: landing
+    role: data
+    spec: |
+      modules:
+        - name: landing
+          module: gcp-srustiops-landing
+          inputs:
+            project: {{ json .Account }}
+            region: {{ .Region }}
+            name: {{ .Name }}
+            network_id: {"$ref": "stack/{{ stack "network" }}/network.network_id"}
+            private_services: {"$ref": "stack/{{ stack "network" }}/network.private_services"}
+            db_tier: {{ .Size.cloudsql_tier }}
+            db_high_availability: {{ .Size.db_ha }}
+            labels: {srustiops-workspace: {{ .Slug }}}
+  - name: install
+    role: install
+    spec: |
+      modules:
+        - name: install
+          module: gcp-srustiops-gke-install
+          inputs:
+            tenant: {{ .Slug }}
+            project: {{ json .Account }}
+            cluster_name: {"$ref": "stack/{{ stack "cluster" }}/gke.cluster_name"}
+            location: {"$ref": "stack/{{ stack "cluster" }}/gke.location"}
+            chart_repository: {{ json .Platform.ChartRepository }}
+            chart_version: {{ json .Platform.ChartVersion }}
+            image_repo: {{ json .Platform.ImageRepo }}
+            image_tag: {{ json .Platform.ImageTag }}
+            gateway_url: {{ json .Platform.GatewayURL }}
+            central_url: {{ json .Platform.CentralURL }}
+            gateway_ca: {{ json .Platform.GatewayCA }}
+            install_token: {{ json .InstallToken }}
+            replicas: {{ .Size.replicas }}
+            database_ip: {"$ref": "stack/{{ stack "landing" }}/landing.database_ip"}
+            database_password_secret: {"$ref": "stack/{{ stack "landing" }}/landing.database_password_secret"}
+            bucket: {"$ref": "stack/{{ stack "landing" }}/landing.bucket"}
+            tenant_service_account: {"$ref": "stack/{{ stack "landing" }}/landing.tenant_service_account"}
+            runner_service_account: {"$ref": "stack/{{ stack "landing" }}/landing.runner_service_account"}

@@ -8,7 +8,7 @@ import (
 
 func TestSignVerify(t *testing.T) {
 	k, _ := GenerateKey()
-	iss, err := New("https://pravaha.example.com/", k)
+	iss, err := New("https://srustiops.example.com/", k)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestSignVerify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c["sub"] != "pravaha:entity:retail:env:prod:stack:network:phase:apply" || c["iss"] != "https://pravaha.example.com" || c["aud"] != "sts.amazonaws.com" {
+	if c["sub"] != "srustiops:entity:retail:env:prod:stack:network:phase:apply" || c["iss"] != "https://srustiops.example.com" || c["aud"] != "sts.amazonaws.com" {
 		t.Fatalf("claims: %v", c)
 	}
 	if _, err := iss.Verify(tok, now.Add(2*time.Hour)); err == nil {

@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/identity"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/risk"
+	"github.com/itsPavanFeed/srustiops-backend/internal/identity"
+	"github.com/itsPavanFeed/srustiops-backend/internal/risk"
 )
 
 const riskKey = "risk"

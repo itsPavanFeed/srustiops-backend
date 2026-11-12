@@ -15,10 +15,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/httpx"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/oidc"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/secure"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/store"
+	"github.com/itsPavanFeed/srustiops-backend/internal/httpx"
+	"github.com/itsPavanFeed/srustiops-backend/internal/oidc"
+	"github.com/itsPavanFeed/srustiops-backend/internal/secure"
+	"github.com/itsPavanFeed/srustiops-backend/internal/store"
 )
 
 // SSO with OpenID Connect: authorization code flow with PKCE.
@@ -31,10 +31,10 @@ import (
 //	/api/v1/auth/exchange  turns a 60-second single-use code into a session token,
 //	                 so the token never appears in a URL
 //
-// SSO only authenticates: access still comes from roles granted in Cloud Pravaha.
+// SSO only authenticates: access still comes from roles granted in SrustiOps.
 
 const (
-	stateCookie    = "pravaha_sso_state"
+	stateCookie    = "srustiops_sso_state"
 	flowTTL        = 10 * time.Minute
 	codeTTL        = 60 * time.Second
 	sessionTTL     = 12 * time.Hour
@@ -48,6 +48,7 @@ type oidcProvider struct {
 	authURL  string
 	tokenURL string
 	verifier *oidc.Verifier
+	alt      *oidc.Verifier // Google: tokens issued as "accounts.google.com"
 }
 
 func randToken(n int) string {
@@ -87,7 +88,7 @@ func (s *Server) provider(ctx context.Context, refresh bool) (*oidcProvider, err
 		return nil, err
 	}
 	if strings.TrimRight(doc.Issuer, "/") != s.cfg.OIDCIssuer {
-		return nil, errors.New("IdP discovery issuer does not match PRAVAHA_OIDC_ISSUER")
+		return nil, errors.New("IdP discovery issuer does not match SRUSTIOPS_OIDC_ISSUER")
 	}
 	var jwks json.RawMessage
 	if err := get(doc.JWKSURI, &jwks); err != nil {
@@ -102,7 +103,7 @@ func (s *Server) provider(ctx context.Context, refresh bool) (*oidcProvider, err
 }
 
 func (s *Server) authConfig(w http.ResponseWriter, r *http.Request) {
-	httpx.WriteJSON(w, 200, map[string]any{"sso": s.cfg.OIDCIssuer != "", "label": s.cfg.OIDCLabel, "webhook_base_url": s.webhookBase()})
+	httpx.WriteJSON(w, 200, map[string]any{"sso": s.cfg.OIDCIssuer != "", "label": s.cfg.OIDCLabel, "providers": append(s.enabledProviders(r.Context()), s.enterpriseButtons(r.Context())...), "webhook_base_url": s.webhookBase()})
 }
 
 func (s *Server) ssoLogin(w http.ResponseWriter, r *http.Request) {
@@ -117,7 +118,7 @@ func (s *Server) ssoLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	state, verifier, nonce := randToken(24), randToken(32), randToken(24)
-	if err := s.store.CreateAuthFlow(r.Context(), state, verifier, nonce); err != nil {
+	if err := s.store.CreateAuthFlow(r.Context(), "oidc", state, verifier, nonce); err != nil {
 		s.storeErr(w, err, "")
 		return
 	}
@@ -162,7 +163,7 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		s.ssoFail(w, r, "idp_"+e)
 		return
 	}
-	verifier, nonce, err := s.store.TakeAuthFlow(ctx, state, flowTTL)
+	verifier, nonce, err := s.store.TakeAuthFlow(ctx, "oidc", state, flowTTL)
 	if err != nil {
 		s.ssoFail(w, r, "expired")
 		return
@@ -210,23 +211,8 @@ func (s *Server) ssoCallback(w http.ResponseWriter, r *http.Request) {
 		s.ssoFail(w, r, "email_not_verified")
 		return
 	}
-	if !s.domainAllowed(email) {
-		s.ssoFail(w, r, "domain_not_allowed")
-		return
-	}
-	u, err := s.store.UserByEmail(ctx, email)
-	if err != nil || u.DisabledAt != nil {
-		s.audit(ctx, "sso:"+email, "auth.sso_denied", "user/"+email, "", map[string]string{"reason": "no such user or disabled"})
-		s.ssoFail(w, r, "no_access")
-		return
-	}
-	code := randToken(32)
-	if err := s.store.CreateAuthCode(ctx, secure.HashToken(code), u.ID, codeTTL); err != nil {
-		s.ssoFail(w, r, "internal")
-		return
-	}
-	s.audit(ctx, u.Email, "auth.sso_login", "user/"+u.Email, "", map[string]string{"issuer": s.cfg.OIDCIssuer})
-	http.Redirect(w, r, "/#/sso/"+code, http.StatusFound)
+	sub, _ := claims["sub"].(string)
+	s.finishSSO(w, r, "oidc", email, nil, s.cfg.OIDCIssuer, sub, verified, identityStrs(claims["amr"]))
 }
 
 func (s *Server) domainAllowed(email string) bool {
@@ -255,7 +241,7 @@ func (s *Server) authExchange(w http.ResponseWriter, r *http.Request) {
 	if !httpx.Decode(w, r, &b) {
 		return
 	}
-	u, err := s.store.TakeAuthCode(r.Context(), secure.HashToken(b.Code))
+	u, sess, err := s.store.TakeAuthCodeWith(r.Context(), secure.HashToken(b.Code))
 	if err != nil {
 		s.limiter.Fail(ip)
 		httpx.WriteErr(w, http.StatusUnauthorized, "invalid or expired sign-in code")
@@ -266,11 +252,15 @@ func (s *Server) authExchange(w http.ResponseWriter, r *http.Request) {
 		s.storeErr(w, err, "")
 		return
 	}
-	if _, err := s.store.CreateToken(r.Context(), u.ID, sessionToken, "sso", secure.HashToken(plain), time.Now().Add(sessionTTL)); err != nil {
+	if _, err := s.store.CreateSessionToken(r.Context(), u.ID, sessionToken, secure.HashToken(plain), time.Now().Add(sessionTTL), sess); err != nil {
 		s.storeErr(w, err, "")
 		return
 	}
-	httpx.WriteJSON(w, 200, map[string]any{"secret": plain, "expires_in": int(sessionTTL.Seconds())})
+	res := map[string]any{"secret": plain, "expires_in": int(sessionTTL.Seconds())}
+	if slug, ok := strings.CutPrefix(sess.IDP, "tenant:"); ok {
+		res["tenant"] = slug // signed in through this tenant's own provider: open it
+	}
+	httpx.WriteJSON(w, 200, res)
 }
 
 // logout revokes the token the request was made with.

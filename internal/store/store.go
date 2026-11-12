@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -20,14 +21,36 @@ import (
 //go:embed migrations/*.sql
 var migrations embed.FS
 
-type Store struct{ Base }
+type Store struct {
+	Base
+	prScope atomic.Pointer[string] // the contracts repository pull requests belong to (repo_key)
+}
+
+// SetPRScope names the contracts repository (provider and owner/repo):
+// pull-request reads and writes see only its pull requests.
+func (s *Store) SetPRScope(provider, repo string) {
+	if provider == "" {
+		provider = "github"
+	}
+	k := strings.ToLower(provider + ":" + repo)
+	if cur := s.prScope.Load(); cur == nil || *cur != k {
+		s.prScope.Store(&k)
+	}
+}
+
+func (s *Store) prKey() string {
+	if k := s.prScope.Load(); k != nil {
+		return *k
+	}
+	return ""
+}
 
 func Open(ctx context.Context, url string) (*Store, error) {
 	db, err := Connect(ctx, url)
 	if err != nil {
 		return nil, err
 	}
-	return &Store{Base{db: db, scopeCol: "bu"}}, nil
+	return &Store{Base: Base{db: db, scopeCol: "bu"}}, nil
 }
 
 func (s *Store) Migrate(ctx context.Context) error {
@@ -64,6 +87,9 @@ func scanRunner(r pgx.Row) (*Runner, error) {
 }
 
 func (s *Store) CreateRunner(ctx context.Context, name, pool string, hash []byte) (*Runner, error) {
+	if err := s.checkLimit(ctx, "runners"); err != nil {
+		return nil, err
+	}
 	r, err := scanRunner(s.db.QueryRow(ctx, `INSERT INTO runners (name, pool, token_hash) VALUES ($1, $2, $3) RETURNING `+runnerCols, name, pool, hash))
 	if IsUnique(err) {
 		return nil, ErrConflict
@@ -97,20 +123,24 @@ func (s *Store) RevokeRunner(ctx context.Context, id string) error {
 // Connection is a cloud account, project or subscription registered once per
 // tenant. It holds identifiers only; Entities limits which entities may use it.
 type Connection struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Cloud     json.RawMessage `json:"cloud"`
-	Entities  []string        `json:"entities"` // empty = every entity
-	CreatedBy string          `json:"created_by"`
-	CreatedAt time.Time       `json:"created_at"`
-	UpdatedAt time.Time       `json:"updated_at"`
+	ID       string          `json:"id"`
+	Name     string          `json:"name"`
+	Cloud    json.RawMessage `json:"cloud"`
+	Entities []string        `json:"entities"` // empty = every entity
+	// Environment is the one environment using it ("entity:name"; "" = none).
+	EnvironmentID *string   `json:"environment_id,omitempty"`
+	Environment   string    `json:"environment,omitempty"`
+	CreatedBy     string    `json:"created_by"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
-const connCols = `id, name, cloud, entities, created_by, created_at, updated_at`
+const connCols = `id, name, cloud, entities, environment_id,
+	COALESCE((SELECT e.entity || ':' || e.name FROM environments e WHERE e.id = environment_id), ''), created_by, created_at, updated_at`
 
 func scanConn(r pgx.Row) (*Connection, error) {
 	var c Connection
-	err := r.Scan(&c.ID, &c.Name, &c.Cloud, &c.Entities, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt)
+	err := r.Scan(&c.ID, &c.Name, &c.Cloud, &c.Entities, &c.EnvironmentID, &c.Environment, &c.CreatedBy, &c.CreatedAt, &c.UpdatedAt)
 	if c.Entities == nil {
 		c.Entities = []string{}
 	}
@@ -126,6 +156,9 @@ func (c *Connection) Allows(entity string) bool {
 }
 
 func (s *Store) CreateConnection(ctx context.Context, c *Connection) (*Connection, error) {
+	if err := s.checkLimit(ctx, "connections"); err != nil {
+		return nil, err
+	}
 	out, err := scanConn(s.db.QueryRow(ctx, `INSERT INTO cloud_connections (name, cloud, entities, created_by) VALUES ($1, $2, $3, $4) RETURNING `+connCols,
 		c.Name, c.Cloud, c.Entities, c.CreatedBy))
 	if IsUnique(err) {
@@ -192,37 +225,125 @@ func (s *Store) ConnectionPage(ctx context.Context, provider string, limit, offs
 // its business units: a cloud connection (or none) plus a tier and guardrails.
 // Cloud is read from the connection. Names are unique within the entity.
 type Environment struct {
-	ID           string          `json:"id"`
-	Name         string          `json:"name"`
-	Entity       string          `json:"entity"`
-	Tier         string          `json:"tier"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Entity string `json:"entity"`
+	Tier   string `json:"tier"`
+	// Connections are the cloud connections of this environment; each
+	// belongs to this environment only. ConnectionID, Connection and Cloud
+	// are the one a stack deploys to: the environment's only connection, or
+	// the stack's choice (see ForConnection).
+	Connections  []EnvConnection `json:"connections"`
 	ConnectionID *string         `json:"connection_id,omitempty"`
 	Connection   string          `json:"connection,omitempty"`
 	Cloud        json.RawMessage `json:"cloud"`
 	RunnerPool   string          `json:"runner_pool"`
 	MaxDestroys  int             `json:"max_destroys"`
-	MaxCreates   int             `json:"max_creates"` // per run; 0 = no limit
-	MaxImports   int             `json:"max_imports"` // per run; 0 = no limit
+	MaxCreates   int             `json:"max_creates"`         // per run; 0 = no limit
+	MaxImports   int             `json:"max_imports"`         // per run; 0 = no limit
+	MaxRunning   int             `json:"max_concurrent_runs"` // plans and applies at once; 0 = no cap
 	AllowDestroy bool            `json:"allow_destroy"`
+	Schedule     json.RawMessage `json:"schedule"` // see api.envSchedule
 	CreatedBy    string          `json:"created_by"`
 	CreatedAt    time.Time       `json:"created_at"`
 	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
-const envSelect = `SELECT e.id, e.name, e.entity, e.tier, e.connection_id, COALESCE(c.name, ''),
-	COALESCE(c.cloud, '{"provider":"none"}'::jsonb), e.runner_pool, e.max_destroys, e.max_creates, e.max_imports, e.allow_destroy, e.created_by, e.created_at, e.updated_at
-	FROM environments e LEFT JOIN cloud_connections c ON c.id = e.connection_id`
+type EnvConnection struct {
+	ID       string          `json:"id"`
+	Name     string          `json:"name"`
+	Provider string          `json:"provider"`
+	Cloud    json.RawMessage `json:"-"`
+}
+
+const envSelect = `SELECT e.id, e.name, e.entity, e.tier,
+	COALESCE((SELECT jsonb_agg(jsonb_build_object('id', c.id, 'name', c.name, 'provider', c.cloud->>'provider', 'cloud', c.cloud) ORDER BY c.name)
+	  FROM cloud_connections c WHERE c.environment_id = e.id), '[]'::jsonb),
+	e.runner_pool, e.max_destroys, e.max_creates, e.max_imports, e.allow_destroy, e.schedule, e.created_by, e.created_at, e.updated_at, e.max_concurrent_runs
+	FROM environments e`
+
+var noCloud = json.RawMessage(`{"provider":"none"}`)
 
 func scanEnv(r pgx.Row) (*Environment, error) {
 	var e Environment
-	err := r.Scan(&e.ID, &e.Name, &e.Entity, &e.Tier, &e.ConnectionID, &e.Connection, &e.Cloud, &e.RunnerPool, &e.MaxDestroys, &e.MaxCreates, &e.MaxImports, &e.AllowDestroy, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt)
-	return &e, NotFound(err)
+	var conns []byte
+	err := r.Scan(&e.ID, &e.Name, &e.Entity, &e.Tier, &conns, &e.RunnerPool, &e.MaxDestroys, &e.MaxCreates, &e.MaxImports, &e.AllowDestroy, &e.Schedule, &e.CreatedBy, &e.CreatedAt, &e.UpdatedAt, &e.MaxRunning)
+	if err != nil {
+		return nil, NotFound(err)
+	}
+	var raw []struct {
+		ID, Name, Provider string
+		Cloud              json.RawMessage
+	}
+	json.Unmarshal(conns, &raw)
+	e.Connections = make([]EnvConnection, 0, len(raw))
+	for _, c := range raw {
+		e.Connections = append(e.Connections, EnvConnection{ID: c.ID, Name: c.Name, Provider: c.Provider, Cloud: c.Cloud})
+	}
+	e.Cloud = noCloud
+	if len(e.Connections) == 1 {
+		e.use(&e.Connections[0])
+	}
+	return &e, nil
+}
+
+func (e *Environment) use(c *EnvConnection) {
+	id := c.ID
+	e.ConnectionID, e.Connection, e.Cloud = &id, c.Name, c.Cloud
+}
+
+// ForConnection returns a copy of the environment that deploys to one of its
+// connections (by ID or name). "" keeps the default: the only connection,
+// or none when there are several.
+func (e *Environment) ForConnection(conn string) (*Environment, bool) {
+	cp := *e
+	if conn == "" {
+		return &cp, true
+	}
+	for i := range e.Connections {
+		if e.Connections[i].ID == conn || e.Connections[i].Name == conn {
+			cp.use(&e.Connections[i])
+			return &cp, true
+		}
+	}
+	return nil, false
+}
+
+// SetEnvironmentConnections makes these the environment's connections.
+// ErrConflict names a connection already used by another environment, or one
+// still used by a stack of this environment.
+func (s *Store) SetEnvironmentConnections(ctx context.Context, env string, ids []string) error {
+	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		var taken string
+		err := tx.QueryRow(ctx, `SELECT c.name FROM cloud_connections c WHERE c.id::text = ANY($2) AND c.environment_id IS NOT NULL AND c.environment_id <> $1 LIMIT 1 FOR UPDATE`, env, ids).Scan(&taken)
+		if err == nil {
+			return fmt.Errorf("%w: connection %s already belongs to another environment", ErrConflict, taken)
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		var used string
+		err = tx.QueryRow(ctx, `SELECT c.name FROM stacks st JOIN cloud_connections c ON c.id = st.connection_id
+			WHERE st.environment_id = $1 AND NOT (st.connection_id::text = ANY($2)) LIMIT 1`, env, ids).Scan(&used)
+		if err == nil {
+			return fmt.Errorf("%w: connection %s is still used by stacks of this environment", ErrConflict, used)
+		} else if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE cloud_connections SET environment_id = NULL WHERE environment_id = $1 AND NOT (id::text = ANY($2))`, env, ids); err != nil {
+			return err
+		}
+		_, err = tx.Exec(ctx, `UPDATE cloud_connections SET environment_id = $1 WHERE id::text = ANY($2)`, env, ids)
+		return err
+	})
 }
 
 func (s *Store) CreateEnvironment(ctx context.Context, e *Environment) (*Environment, error) {
+	if err := s.checkLimit(ctx, "environments"); err != nil {
+		return nil, err
+	}
 	var id string
-	err := s.db.QueryRow(ctx, `INSERT INTO environments (name, entity, tier, connection_id, runner_pool, max_destroys, max_creates, max_imports, allow_destroy, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`, e.Name, e.Entity, e.Tier, e.ConnectionID, e.RunnerPool, e.MaxDestroys, e.MaxCreates, e.MaxImports, e.AllowDestroy, e.CreatedBy).Scan(&id)
+	err := s.db.QueryRow(ctx, `INSERT INTO environments (name, entity, tier, runner_pool, max_destroys, max_creates, max_imports, allow_destroy, created_by, max_concurrent_runs)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`, e.Name, e.Entity, e.Tier, e.RunnerPool, e.MaxDestroys, e.MaxCreates, e.MaxImports, e.AllowDestroy, e.CreatedBy, e.MaxRunning).Scan(&id)
 	if IsUnique(err) {
 		return nil, ErrConflict
 	}
@@ -233,8 +354,8 @@ func (s *Store) CreateEnvironment(ctx context.Context, e *Environment) (*Environ
 }
 
 func (s *Store) UpdateEnvironment(ctx context.Context, e *Environment) (*Environment, error) {
-	tag, err := s.db.Exec(ctx, `UPDATE environments SET tier = $2, connection_id = $3, runner_pool = $4, max_destroys = $5, allow_destroy = $6,
-		max_creates = $7, max_imports = $8, updated_at = now() WHERE id = $1`, e.ID, e.Tier, e.ConnectionID, e.RunnerPool, e.MaxDestroys, e.AllowDestroy, e.MaxCreates, e.MaxImports)
+	tag, err := s.db.Exec(ctx, `UPDATE environments SET tier = $2, runner_pool = $3, max_destroys = $4, allow_destroy = $5,
+		max_creates = $6, max_imports = $7, max_concurrent_runs = $8, updated_at = now() WHERE id = $1`, e.ID, e.Tier, e.RunnerPool, e.MaxDestroys, e.AllowDestroy, e.MaxCreates, e.MaxImports, e.MaxRunning)
 	if err == nil && tag.RowsAffected() == 0 {
 		return nil, ErrNotFound
 	}
@@ -288,6 +409,8 @@ type Stack struct {
 	Entity        string          `json:"entity"`
 	EnvironmentID string          `json:"environment_id"`
 	Environment   string          `json:"environment"`
+	ConnectionID  *string         `json:"connection_id,omitempty"` // the environment connection it deploys to
+	Connection    string          `json:"connection,omitempty"`
 	Spec          json.RawMessage `json:"spec"`
 	CreatedBy     string          `json:"created_by"`
 	CreatedAt     time.Time       `json:"created_at"`
@@ -297,6 +420,28 @@ type Stack struct {
 	ManagedBy     string          `json:"managed_by"`           // ui | git
 	SourceRef     string          `json:"source_ref,omitempty"` // contracts repo commit for Git-managed stacks
 	PRNumber      *int            `json:"pr_number,omitempty"`  // proposed by this open pull request, not applied yet
+	LastAppliedAt *time.Time      `json:"last_applied_at,omitempty"`
+	// ImportsPending counts import blocks of the spec not applied yet (Git
+	// contracts keep applied ones; they are settled and not counted).
+	ImportsPending int `json:"imports_pending"`
+	// WaitsOn: a plan of this stack is deferred until these stacks (which it
+	// references) have applied the outputs it needs.
+	WaitsOn []string `json:"waits_on,omitempty"`
+	// Lock: while set, no plan or apply starts (drift checks still may).
+	Lock *StackLock `json:"lock,omitempty"`
+	// Resources the last plan or apply saw in the stack (from state).
+	Resources   json.RawMessage `json:"resources,omitempty"`
+	ResourcesAt *time.Time      `json:"resources_at,omitempty"`
+	DeletedAt   *time.Time      `json:"deleted_at,omitempty"`
+	ClonedFrom  *string         `json:"cloned_from,omitempty"` // stack ID
+	ClonedName  string          `json:"cloned_from_name,omitempty"`
+	Template    string          `json:"template,omitempty"`
+}
+
+type StackLock struct {
+	By     string    `json:"by"`
+	Reason string    `json:"reason"`
+	At     time.Time `json:"at"`
 }
 
 type DriftSettings struct {
@@ -312,9 +457,13 @@ type RunBrief struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-const stackSelect = `SELECT s.id, s.name, s.bu, s.entity, s.environment_id, e.name, s.spec, s.created_by, s.created_at, s.updated_at,
-	s.drift_interval_minutes, s.drift_auto_remediate, s.last_drift_check, s.managed_by, s.source_ref, s.pr_number,
-	lr.id, lr.status, lr.operation, lr.created_at
+const stackSelect = `SELECT s.id, s.name, s.bu, s.entity, s.environment_id, e.name, s.connection_id, COALESCE((SELECT c.name FROM cloud_connections c WHERE c.id = s.connection_id), ''), s.spec, s.created_by, s.created_at, s.updated_at,
+	s.drift_interval_minutes, s.drift_auto_remediate, s.last_drift_check, s.managed_by, s.source_ref, s.pr_number, s.settled_imports,
+	(SELECT waits_on FROM pending_runs WHERE stack_id = s.id),
+	lr.id, lr.status, lr.operation, lr.created_at,
+	(SELECT max(finished_at) FROM runs WHERE stack_id = s.id AND status = 'applied'),
+	s.locked_by, s.locked_reason, s.locked_at, s.resources, s.resources_at, s.deleted_at, s.cloned_from::text,
+	COALESCE((SELECT c.name FROM stacks c WHERE c.id = s.cloned_from), ''), s.template
 	FROM stacks s JOIN environments e ON e.id = s.environment_id
 	LEFT JOIN LATERAL (SELECT id, status, operation, created_at FROM runs WHERE stack_id = s.id ORDER BY created_at DESC LIMIT 1) lr ON true`
 
@@ -322,23 +471,58 @@ func scanStack(r pgx.Row) (*Stack, error) {
 	var x Stack
 	var rid, rstatus, rop *string
 	var rat *time.Time
-	err := r.Scan(&x.ID, &x.Name, &x.BU, &x.Entity, &x.EnvironmentID, &x.Environment, &x.Spec, &x.CreatedBy, &x.CreatedAt, &x.UpdatedAt,
-		&x.Drift.IntervalMinutes, &x.Drift.AutoRemediate, &x.Drift.LastCheck, &x.ManagedBy, &x.SourceRef, &x.PRNumber, &rid, &rstatus, &rop, &rat)
+	var settled []string
+	var lockBy *string
+	var lockReason string
+	var lockAt *time.Time
+	err := r.Scan(&x.ID, &x.Name, &x.BU, &x.Entity, &x.EnvironmentID, &x.Environment, &x.ConnectionID, &x.Connection, &x.Spec, &x.CreatedBy, &x.CreatedAt, &x.UpdatedAt,
+		&x.Drift.IntervalMinutes, &x.Drift.AutoRemediate, &x.Drift.LastCheck, &x.ManagedBy, &x.SourceRef, &x.PRNumber, &settled, &x.WaitsOn, &rid, &rstatus, &rop, &rat, &x.LastAppliedAt,
+		&lockBy, &lockReason, &lockAt, &x.Resources, &x.ResourcesAt, &x.DeletedAt, &x.ClonedFrom, &x.ClonedName, &x.Template)
+	if lockBy != nil && lockAt != nil {
+		x.Lock = &StackLock{By: *lockBy, Reason: lockReason, At: *lockAt}
+	}
 	if rid != nil {
 		x.LastRun = &RunBrief{ID: *rid, Status: *rstatus, Operation: *rop, CreatedAt: *rat}
+	}
+	var sp struct {
+		Imports []struct {
+			To string `json:"to"`
+		} `json:"imports"`
+	}
+	json.Unmarshal(x.Spec, &sp)
+	done := map[string]bool{}
+	for _, a := range settled {
+		done[a] = true
+	}
+	for _, im := range sp.Imports {
+		if !done[im.To] {
+			x.ImportsPending++
+		}
 	}
 	return &x, NotFound(err)
 }
 
-func (s *Store) CreateStack(ctx context.Context, name, bu, entity, envID string, spec []byte, by string) (*Stack, error) {
-	return s.CreateManagedStack(ctx, name, bu, entity, envID, spec, by, "ui", "")
+// SettleImports records import addresses that are applied (or in state).
+func (s *Store) SettleImports(ctx context.Context, stackID string, addrs []string) error {
+	if len(addrs) == 0 {
+		return nil
+	}
+	_, err := s.db.Exec(ctx, `UPDATE stacks SET settled_imports = ARRAY(SELECT DISTINCT unnest(settled_imports || $2::text[])) WHERE id = $1`, stackID, addrs)
+	return err
+}
+
+func (s *Store) CreateStack(ctx context.Context, name, bu, entity, envID string, conn *string, spec []byte, by string) (*Stack, error) {
+	return s.CreateManagedStack(ctx, name, bu, entity, envID, conn, spec, by, "ui", "")
 }
 
 // CreateManagedStack creates a stack owned by the UI or by the contracts repository.
-func (s *Store) CreateManagedStack(ctx context.Context, name, bu, entity, envID string, spec []byte, by, managedBy, ref string) (*Stack, error) {
+func (s *Store) CreateManagedStack(ctx context.Context, name, bu, entity, envID string, conn *string, spec []byte, by, managedBy, ref string) (*Stack, error) {
+	if err := s.checkLimit(ctx, "stacks"); err != nil {
+		return nil, err
+	}
 	var id string
-	err := s.db.QueryRow(ctx, `INSERT INTO stacks (name, bu, entity, environment_id, spec, created_by, managed_by, source_ref) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
-		name, bu, entity, envID, spec, by, managedBy, ref).Scan(&id)
+	err := s.db.QueryRow(ctx, `INSERT INTO stacks (name, bu, entity, environment_id, connection_id, spec, created_by, managed_by, source_ref) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+		name, bu, entity, envID, conn, spec, by, managedBy, ref).Scan(&id)
 	if IsUnique(err) {
 		return nil, ErrConflict
 	}
@@ -361,6 +545,13 @@ func (s *Store) UpdateStack(ctx context.Context, id string, spec []byte) error {
 
 // UpdateGitStack replaces a Git-managed stack's spec at a new commit (refused
 // while a run is active, like UpdateStack).
+// SetStackConnection moves a stack (with no active run) to another
+// connection of its environment.
+func (s *Store) SetStackConnection(ctx context.Context, id string, conn *string) error {
+	_, err := s.db.Exec(ctx, `UPDATE stacks SET connection_id = $2, updated_at = now() WHERE id = $1`, id, conn)
+	return err
+}
+
 func (s *Store) UpdateGitStack(ctx context.Context, id string, spec []byte, ref string) error {
 	tag, err := s.db.Exec(ctx, `UPDATE stacks SET spec = $2, source_ref = $3, pr_number = NULL, updated_at = now() WHERE id = $1 AND managed_by = 'git'
 		AND NOT EXISTS (SELECT 1 FROM runs WHERE stack_id = $1 AND status IN ('queued','planning','planned','apply_queued','applying'))`, id, spec, ref)
@@ -371,18 +562,53 @@ func (s *Store) UpdateGitStack(ctx context.Context, id string, spec []byte, ref 
 }
 
 func (s *Store) GetStack(ctx context.Context, idOrName string) (*Stack, error) {
-	return scanStack(s.db.QueryRow(ctx, stackSelect+` WHERE s.id::text = $1 OR s.name = $1`, idOrName))
+	// By ID a deleted stack is still found (its runs link to it); by name only live ones.
+	return scanStack(s.db.QueryRow(ctx, stackSelect+` WHERE s.id::text = $1 OR (s.name = $1 AND s.deleted_at IS NULL) ORDER BY s.deleted_at NULLS FIRST LIMIT 1`, idOrName))
+}
+
+// stackSummarySelect is stackSelect without the heavy columns: the spec
+// keeps each module's name, kind and source and the import targets (what
+// lists and counts need), and resources are left out.
+var stackSummarySelect = strings.NewReplacer(
+	"s.environment_id, e.name, s.connection_id, COALESCE((SELECT c.name FROM cloud_connections c WHERE c.id = s.connection_id), ''), s.spec,",
+	`s.environment_id, e.name, s.connection_id, COALESCE((SELECT c.name FROM cloud_connections c WHERE c.id = s.connection_id), ''),
+	jsonb_build_object('modules', COALESCE((SELECT jsonb_agg(jsonb_build_object('name', m->'name', 'kind', m->'kind', 'module', m->'module'))
+		FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.spec->'modules') = 'array' THEN s.spec->'modules' ELSE '[]' END) m), '[]'),
+		'imports', COALESCE((SELECT jsonb_agg(jsonb_build_object('to', i->'to'))
+		FROM jsonb_array_elements(CASE WHEN jsonb_typeof(s.spec->'imports') = 'array' THEN s.spec->'imports' ELSE '[]' END) i), '[]')),`,
+	"s.locked_at, s.resources,", "s.locked_at, NULL::jsonb,",
+).Replace(stackSelect)
+
+// ListStackSummaries lists stacks for pages that show many: slim specs, no
+// resources, a page at a time (limit 0 = all) with the total.
+func (s *Store) ListStackSummaries(ctx context.Context, bus []string, limit, offset int) ([]*Stack, int, error) {
+	args := []any{}
+	where := ` WHERE s.deleted_at IS NULL AND ` + buFilter("s.bu", bus, &args)
+	var total int
+	if err := s.db.QueryRow(ctx, `SELECT count(*) FROM stacks s`+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	q := stackSummarySelect + where + ` ORDER BY s.entity, s.bu, s.name`
+	if limit > 0 {
+		args = append(args, limit, offset)
+		q += fmt.Sprintf(` LIMIT $%d OFFSET $%d`, len(args)-1, len(args))
+	}
+	rows, err := s.db.Query(ctx, q, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	out, err := Collect(rows, scanStack)
+	return out, total, err
 }
 
 func (s *Store) ListStacks(ctx context.Context, bus []string) ([]*Stack, error) {
 	args := []any{}
-	rows, err := s.db.Query(ctx, stackSelect+` WHERE `+buFilter("s.bu", bus, &args)+` ORDER BY s.entity, s.bu, s.name`, args...)
+	rows, err := s.db.Query(ctx, stackSelect+` WHERE s.deleted_at IS NULL AND `+buFilter("s.bu", bus, &args)+` ORDER BY s.entity, s.bu, s.name`, args...)
 	if err != nil {
 		return nil, err
 	}
 	return Collect(rows, scanStack)
 }
-
 
 // ---- runs ----
 
@@ -423,12 +649,19 @@ type Run struct {
 	PRNumber *int            `json:"pr_number,omitempty"`
 	PRSha    *string         `json:"pr_sha,omitempty"`
 	PRURL    *string         `json:"pr_url,omitempty"`
+	// ZeroDiff runs test a contract matched to the live resources: they must
+	// change nothing. SourceRun is the run they were derived from.
+	ZeroDiff  bool    `json:"zero_diff,omitempty"`
+	SourceRun *string `json:"source_run,omitempty"`
+	// CancelRequestedBy: someone asked to cancel this plan or apply; the
+	// runner interrupts OpenTofu at its next check-in.
+	CancelRequestedBy *string `json:"cancel_requested_by,omitempty"`
 }
 
 const runSelect = `SELECT r.id, r.stack_id, s.name, s.bu, s.entity, e.name, r.operation, r.status, r.created_by,
 	r.config_hash, r.state_serial, r.plan_sha256, r.plan_summary, r.policy_result, r.risk, r.cost, r.required_approvals, r.error, r.runner_id,
 	r.created_at, r.updated_at, r.planned_at, r.finished_at, r.spec, r.pr_number, r.pr_sha,
-	(SELECT p.html_url FROM pull_requests p WHERE p.number = r.pr_number),
+	(SELECT p.html_url FROM pull_requests p WHERE p.repo_key = r.pr_repo AND p.number = r.pr_number), r.zero_diff, r.source_run::text, r.cancel_requested_by,
 	COALESCE((SELECT json_agg(json_build_object('step', a.step, 'approver', a.approver, 'reason', a.reason, 'created_at', a.created_at) ORDER BY a.created_at)
 	          FROM run_approvals a WHERE a.run_id = r.id), '[]')
 	FROM runs r JOIN stacks s ON s.id = r.stack_id JOIN environments e ON e.id = s.environment_id`
@@ -438,7 +671,7 @@ func scanRun(r pgx.Row) (*Run, error) {
 	var approvals []byte
 	err := r.Scan(&x.ID, &x.StackID, &x.StackName, &x.BU, &x.Entity, &x.Environment, &x.Operation, &x.Status, &x.CreatedBy,
 		&x.ConfigHash, &x.StateSerial, &x.PlanSHA256, &x.PlanSummary, &x.PolicyResult, &x.Risk, &x.Cost, &x.RequiredApprovals, &x.Error, &x.RunnerID,
-		&x.CreatedAt, &x.UpdatedAt, &x.PlannedAt, &x.FinishedAt, &x.Spec, &x.PRNumber, &x.PRSha, &x.PRURL, &approvals)
+		&x.CreatedAt, &x.UpdatedAt, &x.PlannedAt, &x.FinishedAt, &x.Spec, &x.PRNumber, &x.PRSha, &x.PRURL, &x.ZeroDiff, &x.SourceRun, &x.CancelRequestedBy, &approvals)
 	if err == nil {
 		json.Unmarshal(approvals, &x.Approvals)
 	}
@@ -452,9 +685,12 @@ func scanRun(r pgx.Row) (*Run, error) {
 }
 
 // Terminal run statuses.
-var Terminal = []string{"no_changes", "policy_failed", "applied", "failed", "discarded", "no_drift", "drifted"}
+var Terminal = []string{"no_changes", "policy_failed", "applied", "failed", "discarded", "no_drift", "drifted", "cancelled"}
 
 func (s *Store) CreateRun(ctx context.Context, stackID, op, by, configHash string) (*Run, error) {
+	if err := s.checkRunnable(ctx, stackID, op); err != nil {
+		return nil, err
+	}
 	var id string
 	err := s.db.QueryRow(ctx, `INSERT INTO runs (stack_id, operation, status, created_by, config_hash) VALUES ($1, $2, 'queued', $3, $4) RETURNING id`,
 		stackID, op, by, configHash).Scan(&id)
@@ -472,11 +708,43 @@ func (s *Store) GetRun(ctx context.Context, id string) (*Run, error) {
 }
 
 func (s *Store) ListRuns(ctx context.Context, stackID string, bus []string, limit int) ([]*Run, error) {
-	args := []any{limit}
-	where := buFilter("s.bu", bus, &args)
-	if stackID != "" {
-		args = append(args, stackID)
+	return s.QueryRuns(ctx, RunQuery{StackID: stackID, BUs: bus, Limit: limit})
+}
+
+// RunQuery filters a page of runs, newest first. Before is the created_at of
+// the last run of the previous page (exclusive).
+type RunQuery struct {
+	StackID    string
+	BUs        []string
+	Limit      int
+	Before     time.Time
+	Operations []string
+	Statuses   []string
+	Stack      string // part of the stack name
+}
+
+func (s *Store) QueryRuns(ctx context.Context, q RunQuery) ([]*Run, error) {
+	args := []any{q.Limit}
+	where := buFilter("s.bu", q.BUs, &args)
+	if q.StackID != "" {
+		args = append(args, q.StackID)
 		where += fmt.Sprintf(` AND r.stack_id::text = $%d`, len(args))
+	}
+	if !q.Before.IsZero() {
+		args = append(args, q.Before)
+		where += fmt.Sprintf(` AND r.created_at < $%d`, len(args))
+	}
+	if len(q.Operations) > 0 {
+		args = append(args, q.Operations)
+		where += fmt.Sprintf(` AND r.operation = ANY($%d)`, len(args))
+	}
+	if len(q.Statuses) > 0 {
+		args = append(args, q.Statuses)
+		where += fmt.Sprintf(` AND r.status = ANY($%d)`, len(args))
+	}
+	if q.Stack != "" {
+		args = append(args, "%"+strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(q.Stack)+"%")
+		where += fmt.Sprintf(` AND s.name ILIKE $%d`, len(args))
 	}
 	rows, err := s.db.Query(ctx, runSelect+` WHERE `+where+` ORDER BY r.created_at DESC LIMIT $1`, args...)
 	if err != nil {
@@ -485,7 +753,8 @@ func (s *Store) ListRuns(ctx context.Context, stackID string, bus []string, limi
 	return Collect(rows, scanRun)
 }
 
-// ClaimRun hands the oldest queued run in a pool to a runner. Plans move
+// ClaimRun hands a queued run in a pool to a runner (applies first, then
+// fairly across BUs, oldest first). Plans move
 // queued -> planning, approved applies move apply_queued -> applying. The run
 // token is replaced on every claim, so a plan-phase token cannot apply.
 func (s *Store) ClaimRun(ctx context.Context, runnerID, pool string, tokenHash []byte, ttl time.Duration) (*Run, error) {
@@ -494,10 +763,18 @@ func (s *Store) ClaimRun(ctx context.Context, runnerID, pool string, tokenHash [
 			status = CASE status WHEN 'queued' THEN 'planning' ELSE 'applying' END,
 			runner_id = $1, run_token_hash = $3, run_token_expires_at = now() + $4::interval, updated_at = now()
 		WHERE id = (
+			WITH busy AS (SELECT sb.bu, count(*) AS n FROM runs a JOIN stacks sb ON sb.id = a.stack_id
+				WHERE a.status IN ('planning', 'applying') GROUP BY sb.bu)
 			SELECT r.id FROM runs r
 			JOIN stacks s ON s.id = r.stack_id JOIN environments e ON e.id = s.environment_id
+			LEFT JOIN busy b ON b.bu = s.bu
 			WHERE r.status IN ('queued', 'apply_queued') AND e.runner_pool = $2
-			ORDER BY r.created_at LIMIT 1 FOR UPDATE OF r SKIP LOCKED)
+			  AND (e.max_concurrent_runs = 0 OR e.max_concurrent_runs > (SELECT count(*) FROM runs a JOIN stacks sa ON sa.id = a.stack_id
+			       WHERE sa.environment_id = e.id AND a.status IN ('planning', 'applying')))
+			-- Approved applies first; then the BU with the fewest runs in
+			-- progress, so one BU's burst cannot hold the others back; then age.
+			ORDER BY (r.status = 'apply_queued') DESC, COALESCE(b.n, 0), r.created_at
+			LIMIT 1 FOR UPDATE OF r SKIP LOCKED)
 		RETURNING id`, runnerID, pool, tokenHash, fmt.Sprintf("%d seconds", int(ttl.Seconds()))).Scan(&id)
 	if err != nil {
 		return nil, NotFound(err)
@@ -517,9 +794,52 @@ func (s *Store) RunByToken(ctx context.Context, hash []byte) (*Run, error) {
 }
 
 func (s *Store) AppendLog(ctx context.Context, runID, chunk string) error {
-	_, err := s.db.Exec(ctx, `WITH t AS (UPDATE runs SET updated_at = now() WHERE id = $1)
+	// The run is marked alive at most every 30 seconds, not on every chunk:
+	// runs is the busiest table, and the reaper waits minutes.
+	_, err := s.db.Exec(ctx, `WITH t AS (UPDATE runs SET updated_at = now() WHERE id = $1 AND updated_at < now() - interval '30 seconds')
 		INSERT INTO run_logs (run_id, chunk) VALUES ($1, $2)`, runID, chunk)
 	return err
+}
+
+// LogsArchived reports whether a run's log has moved to the bucket.
+func (s *Store) LogsArchived(ctx context.Context, runID string) bool {
+	var a bool
+	s.db.QueryRow(ctx, `SELECT logs_archived FROM runs WHERE id::text = $1`, runID).Scan(&a)
+	return a
+}
+
+// MarkLogsArchived flags a run's log as moved to the bucket and drops its rows.
+func (s *Store) MarkLogsArchived(ctx context.Context, runID string) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE runs SET logs_archived = true WHERE id = $1`, runID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM run_logs WHERE run_id = $1`, runID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RunsToArchive lists finished runs whose logs are still in the database.
+func (s *Store) RunsToArchive(ctx context.Context, olderThan time.Duration, limit int) ([]string, error) {
+	rows, err := s.db.Query(ctx, `SELECT id::text FROM runs WHERE NOT logs_archived AND status = ANY($1)
+		AND updated_at < now() - $2::interval ORDER BY updated_at LIMIT $3`, Terminal, fmt.Sprintf("%d seconds", int(olderThan.Seconds())), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var id string
+		if rows.Scan(&id) == nil {
+			out = append(out, id)
+		}
+	}
+	return out, rows.Err()
 }
 
 type LogChunk struct {
@@ -601,14 +921,35 @@ func (s *Store) Approve(ctx context.Context, runID, step, approver, reason strin
 		return false, err
 	}
 	defer tx.Rollback(ctx)
-	var status, createdBy string
+	var status, createdBy, author, prRepo string
 	var required []string
-	if err := tx.QueryRow(ctx, `SELECT status, created_by, required_approvals FROM runs WHERE id = $1 FOR UPDATE`, runID).Scan(&status, &createdBy, &required); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT status, created_by, required_approvals, author_subject, COALESCE(pr_repo, '') FROM runs WHERE id = $1 FOR UPDATE`, runID).
+		Scan(&status, &createdBy, &required, &author, &prRepo); err != nil {
 		return false, NotFound(err)
+	}
+	// A pull request's plan: its author is whoever proposed it in SrustiOps,
+	// or the person a host login (git:pr#N:<login>) is linked to.
+	if author == "" && strings.HasPrefix(createdBy, "git:pr#") && prRepo != "" {
+		// Recorded after the pull request opened; a plan may have started first.
+		tx.QueryRow(ctx, `SELECT p.subject FROM pr_proposers p JOIN runs r ON r.pr_repo = p.repo_key AND r.pr_number = p.number WHERE r.id = $1`, runID).Scan(&author)
+	}
+	if author == "" && strings.HasPrefix(createdBy, "git:pr#") && prRepo != "" {
+		login := createdBy[strings.LastIndex(createdBy, ":")+1:]
+		provider, _, _ := strings.Cut(prRepo, ":")
+		tx.QueryRow(ctx, `SELECT subject FROM git_identities WHERE provider = $1 AND login = lower($2) AND subject = $3`, provider, login, approver).Scan(&author)
+	}
+	if author == approver {
+		createdBy = approver
+	}
+	var locked bool
+	if err := tx.QueryRow(ctx, `SELECT s.locked_by IS NOT NULL OR s.deleted_at IS NOT NULL FROM runs r JOIN stacks s ON s.id = r.stack_id WHERE r.id = $1`, runID).Scan(&locked); err != nil {
+		return false, err
 	}
 	switch {
 	case status != "planned":
 		return false, ErrNotPlanned
+	case locked:
+		return false, ErrLocked
 	case createdBy == approver:
 		return false, ErrSelfApproval
 	case !containsStr(required, step):
@@ -673,6 +1014,12 @@ func (s *Store) FinishRun(ctx context.Context, runID, status, errMsg string) err
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrConflict
 	}
+	return err
+}
+
+// SetRunError sets the error text (a note) of a run that has ended.
+func (s *Store) SetRunError(ctx context.Context, runID, errMsg string) error {
+	_, err := s.db.Exec(ctx, `UPDATE runs SET error = $2 WHERE id = $1 AND status IN ('failed', 'policy_failed')`, runID, errMsg)
 	return err
 }
 
@@ -760,7 +1107,7 @@ func (s *Store) ListPolicySets(ctx context.Context) ([]*PolicySet, error) {
 // they can be deleted.
 func (s *Store) FinishedPlanObjects(ctx context.Context) ([]string, error) {
 	rows, err := s.db.Query(ctx, `UPDATE runs SET plan_object = NULL WHERE plan_object IS NOT NULL
-		AND status IN ('applied','failed','discarded','no_changes','policy_failed','no_drift','drifted') RETURNING id::text`)
+		AND status IN ('applied','failed','discarded','no_changes','policy_failed','no_drift','drifted','cancelled') RETURNING id::text`)
 	if err != nil {
 		return nil, err
 	}
@@ -925,7 +1272,15 @@ func (s *Store) deleteRow(ctx context.Context, table, id string) error {
 	return nil
 }
 
+// DeleteConnection removes a connection no environment uses (ErrConflict otherwise).
 func (s *Store) DeleteConnection(ctx context.Context, id string) error {
+	var inUse bool
+	if err := s.db.QueryRow(ctx, `SELECT environment_id IS NOT NULL FROM cloud_connections WHERE id = $1`, id).Scan(&inUse); err != nil {
+		return NotFound(err)
+	}
+	if inUse {
+		return ErrConflict
+	}
 	return s.deleteRow(ctx, "cloud_connections", id)
 }
 func (s *Store) DeleteEnvironment(ctx context.Context, id string) error {
@@ -988,10 +1343,19 @@ func (s *Store) ListDeliveries(ctx context.Context, limit int, before int64) ([]
 // ---- pull requests ----
 
 // CreatePRRun queues a plan of a pull request's spec for a stack.
-func (s *Store) CreatePRRun(ctx context.Context, stackID, by, configHash string, spec []byte, pr int, sha string) (*Run, error) {
+func (s *Store) CreatePRRun(ctx context.Context, stackID, by, configHash string, spec []byte, pr int, sha string, zeroDiff bool, sourceRun *string) (*Run, error) {
+	// A pull request's plan is a preview: it may run on a locked stack, but
+	// its apply waits for the unlock like any other.
+	if err := s.checkRunnable(ctx, stackID, "drift"); err != nil {
+		return nil, err
+	}
+	if err := s.checkLimit(ctx, "runs_per_month"); err != nil { // a PR plan is a run like any other
+		return nil, err
+	}
 	var id string
-	err := s.db.QueryRow(ctx, `INSERT INTO runs (stack_id, operation, status, created_by, config_hash, spec, pr_number, pr_sha)
-		VALUES ($1, 'apply', 'queued', $2, $3, $4, $5, $6) RETURNING id`, stackID, by, configHash, spec, pr, sha).Scan(&id)
+	err := s.db.QueryRow(ctx, `INSERT INTO runs (stack_id, operation, status, created_by, config_hash, spec, pr_number, pr_sha, zero_diff, source_run, pr_repo, author_subject)
+		VALUES ($1, 'apply', 'queued', $2, $3, $4, $5, $6, $7, $8, $9, COALESCE((SELECT subject FROM pr_proposers WHERE repo_key = $9 AND number = $5), ''))
+		RETURNING id`, stackID, by, configHash, spec, pr, sha, zeroDiff, sourceRun, s.prKey()).Scan(&id)
 	if IsUnique(err) {
 		return nil, ErrConflict
 	}
@@ -1003,7 +1367,7 @@ func (s *Store) CreatePRRun(ctx context.Context, stackID, by, configHash string,
 
 // PRRuns lists a pull request's runs, newest first.
 func (s *Store) PRRuns(ctx context.Context, pr int) ([]*Run, error) {
-	rows, err := s.db.Query(ctx, runSelect+` WHERE r.pr_number = $1 ORDER BY r.created_at DESC`, pr)
+	rows, err := s.db.Query(ctx, runSelect+` WHERE r.pr_repo = $2 AND r.pr_number = $1 ORDER BY r.created_at DESC`, pr, s.prKey())
 	if err != nil {
 		return nil, err
 	}
@@ -1036,19 +1400,19 @@ func scanPR(r pgx.Row) (*PullRequest, error) {
 
 // UpsertPR records a pull request's latest head; a new head reopens it.
 func (s *Store) UpsertPR(ctx context.Context, p *PullRequest) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO pull_requests (number, repo, title, author, html_url, head_sha, state, results)
-		VALUES ($1, $2, $3, $4, $5, $6, 'open', $7)
-		ON CONFLICT (number) DO UPDATE SET repo = $2, title = $3, author = $4, html_url = $5, head_sha = $6, state = 'open', results = $7, updated_at = now()`,
-		p.Number, p.Repo, p.Title, p.Author, p.HTMLURL, p.HeadSHA, p.Results)
+	_, err := s.db.Exec(ctx, `INSERT INTO pull_requests (number, repo, title, author, html_url, head_sha, state, results, repo_key)
+		VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8)
+		ON CONFLICT (repo_key, number) DO UPDATE SET repo = $2, title = $3, author = $4, html_url = $5, head_sha = $6, state = 'open', results = $7, updated_at = now()`,
+		p.Number, p.Repo, p.Title, p.Author, p.HTMLURL, p.HeadSHA, p.Results, s.prKey())
 	return err
 }
 
 func (s *Store) GetPR(ctx context.Context, n int) (*PullRequest, error) {
-	return scanPR(s.db.QueryRow(ctx, `SELECT `+prCols+` FROM pull_requests WHERE number = $1`, n))
+	return scanPR(s.db.QueryRow(ctx, `SELECT `+prCols+` FROM pull_requests WHERE repo_key = $2 AND number = $1`, n, s.prKey()))
 }
 
 func (s *Store) OpenPRs(ctx context.Context) ([]*PullRequest, error) {
-	rows, err := s.db.Query(ctx, `SELECT `+prCols+` FROM pull_requests WHERE state = 'open' ORDER BY number`)
+	rows, err := s.db.Query(ctx, `SELECT `+prCols+` FROM pull_requests WHERE repo_key = $1 AND state = 'open' ORDER BY number`, s.prKey())
 	if err != nil {
 		return nil, err
 	}
@@ -1056,7 +1420,7 @@ func (s *Store) OpenPRs(ctx context.Context) ([]*PullRequest, error) {
 }
 
 func (s *Store) ListPRs(ctx context.Context, limit int) ([]*PullRequest, error) {
-	rows, err := s.db.Query(ctx, `SELECT `+prCols+` FROM pull_requests ORDER BY updated_at DESC LIMIT $1`, limit)
+	rows, err := s.db.Query(ctx, `SELECT `+prCols+` FROM pull_requests WHERE repo_key = $2 ORDER BY updated_at DESC LIMIT $1`, limit, s.prKey())
 	if err != nil {
 		return nil, err
 	}
@@ -1065,28 +1429,93 @@ func (s *Store) ListPRs(ctx context.Context, limit int) ([]*PullRequest, error) 
 
 func (s *Store) SetPRState(ctx context.Context, n int, state string) error {
 	_, err := s.db.Exec(ctx, `UPDATE pull_requests SET state = $2, updated_at = now(),
-		merged_at = CASE WHEN $2 = 'merged' THEN now() ELSE merged_at END WHERE number = $1`, n, state)
+		merged_at = CASE WHEN $2 = 'merged' THEN now() ELSE merged_at END WHERE repo_key = $3 AND number = $1`, n, state, s.prKey())
 	return err
 }
 
 func (s *Store) SetPRComment(ctx context.Context, n int, commentID int64, sum string) error {
-	_, err := s.db.Exec(ctx, `UPDATE pull_requests SET comment_id = $2, comment_sum = $3 WHERE number = $1`, n, commentID, sum)
+	_, err := s.db.Exec(ctx, `UPDATE pull_requests SET comment_id = $2, comment_sum = $3 WHERE repo_key = $4 AND number = $1`, n, commentID, sum, s.prKey())
 	return err
 }
 
 // CreateProposedStack creates a Git-managed stack introduced by an open pull request.
-func (s *Store) CreateProposedStack(ctx context.Context, name, bu, entity, envID string, spec []byte, by string, pr int) (*Stack, error) {
-	st, err := s.CreateManagedStack(ctx, name, bu, entity, envID, spec, by, "git", fmt.Sprintf("pr#%d", pr))
+func (s *Store) CreateProposedStack(ctx context.Context, name, bu, entity, envID string, conn *string, spec []byte, by string, pr int) (*Stack, error) {
+	st, err := s.CreateManagedStack(ctx, name, bu, entity, envID, conn, spec, by, "git", fmt.Sprintf("pr#%d", pr))
 	if err != nil {
 		return nil, err
 	}
-	_, err = s.db.Exec(ctx, `UPDATE stacks SET pr_number = $2 WHERE id = $1`, st.ID, pr)
+	_, err = s.db.Exec(ctx, `UPDATE stacks SET pr_number = $2, pr_repo = $3 WHERE id = $1`, st.ID, pr, s.prKey())
 	return st, err
 }
 
 // AdoptPRSpec records a pull request's spec as the stack's after it was applied.
+// CreateCandidateRun plans a proposed contract (spec) for a stack without
+// changing the stack; SaveCandidateSpec keeps it once its plan passes.
+func (s *Store) CreateCandidateRun(ctx context.Context, stackID, by, configHash string, spec []byte, sourceRun string) (*Run, error) {
+	if err := s.checkRunnable(ctx, stackID, "apply"); err != nil {
+		return nil, err
+	}
+	var id string
+	err := s.db.QueryRow(ctx, `INSERT INTO runs (stack_id, operation, status, created_by, config_hash, spec, zero_diff, source_run)
+		VALUES ($1, 'apply', 'queued', $2, $3, $4, true, $5) RETURNING id`, stackID, by, configHash, spec, sourceRun).Scan(&id)
+	if IsUnique(err) {
+		return nil, ErrConflict
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.GetRun(ctx, id)
+}
+
+// QueueApply moves a planned run that needs no approval (a state refresh
+// only) straight to apply_queued.
+func (s *Store) QueueApply(ctx context.Context, runID string) error {
+	tag, err := s.db.Exec(ctx, `UPDATE runs SET status = 'apply_queued', updated_at = now() WHERE id = $1 AND status = 'planned'
+		AND NOT EXISTS (SELECT 1 FROM stacks s WHERE s.id = runs.stack_id AND (s.locked_by IS NOT NULL OR s.deleted_at IS NOT NULL))`, runID)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrConflict
+	}
+	return err
+}
+
+// LatestRuns returns a stack's most recent runs, newest first.
+func (s *Store) LatestRuns(ctx context.Context, stackID string, n int) ([]*Run, error) {
+	rows, err := s.db.Query(ctx, runSelect+` WHERE r.stack_id = $1 AND r.status <> 'discarded' ORDER BY r.created_at DESC LIMIT $2`, stackID, n)
+	if err != nil {
+		return nil, err
+	}
+	return Collect(rows, scanRun)
+}
+
+// ZeroDiffPR is a pull request opened from live -> code for one stack.
+type ZeroDiffPR struct {
+	Number    int
+	StackID   string
+	SourceRun *string
+}
+
+func (s *Store) AddZeroDiffPR(ctx context.Context, number int, stackID, sourceRun, by string) error {
+	_, err := s.db.Exec(ctx, `INSERT INTO zero_diff_prs (number, stack_id, source_run, created_by) VALUES ($1, $2, NULLIF($3, '')::uuid, $4)
+		ON CONFLICT (number) DO NOTHING`, number, stackID, sourceRun, by)
+	return err
+}
+
+func (s *Store) GetZeroDiffPR(ctx context.Context, number int) (*ZeroDiffPR, error) {
+	var z ZeroDiffPR
+	err := s.db.QueryRow(ctx, `SELECT number, stack_id, source_run::text FROM zero_diff_prs WHERE number = $1`, number).Scan(&z.Number, &z.StackID, &z.SourceRun)
+	return &z, NotFound(err)
+}
+
+// SaveCandidateSpec makes a candidate run's contract the stack's.
+func (s *Store) SaveCandidateSpec(ctx context.Context, stackID string, spec []byte) error {
+	_, err := s.db.Exec(ctx, `UPDATE stacks SET spec = $2, updated_at = now() WHERE id = $1`, stackID, spec)
+	return err
+}
+
+// AdoptPRSpec records an applied pull request's contract; a console stack the
+// pull request took over (live -> code) is managed through Git from then on.
 func (s *Store) AdoptPRSpec(ctx context.Context, stackID string, spec []byte, ref string) error {
-	_, err := s.db.Exec(ctx, `UPDATE stacks SET spec = $2, source_ref = $3, pr_number = NULL, updated_at = now() WHERE id = $1`, stackID, spec, ref)
+	_, err := s.db.Exec(ctx, `UPDATE stacks SET spec = $2, source_ref = $3, pr_number = NULL, managed_by = 'git', updated_at = now() WHERE id = $1`, stackID, spec, ref)
 	return err
 }
 
@@ -1098,8 +1527,8 @@ func (s *Store) DropProposedStacks(ctx context.Context, pr int) ([]string, error
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	rows, err := tx.Query(ctx, `SELECT id, name FROM stacks s WHERE pr_number = $1
-		AND NOT EXISTS (SELECT 1 FROM state_versions v WHERE v.stack_id = s.id) FOR UPDATE`, pr)
+	rows, err := tx.Query(ctx, `SELECT id, name FROM stacks s WHERE pr_number = $1 AND pr_repo = $2
+		AND NOT EXISTS (SELECT 1 FROM state_versions v WHERE v.stack_id = s.id) FOR UPDATE`, pr, s.prKey())
 	if err != nil {
 		return nil, err
 	}
@@ -1181,9 +1610,13 @@ func visibleNotif(bus []string, args *[]any) string {
 }
 
 // ListNotifications returns notifications newest first, older than before (0 = newest).
-func (s *Store) ListNotifications(ctx context.Context, bus []string, before int64, limit int) ([]*Notification, error) {
-	args := []any{limit, before}
-	rows, err := s.db.Query(ctx, `SELECT `+notifCols+` FROM notifications WHERE ($2 = 0 OR id < $2) AND `+visibleNotif(bus, &args)+` ORDER BY id DESC LIMIT $1`, args...)
+// Kinds the person muted are left out.
+func (s *Store) ListNotifications(ctx context.Context, bus []string, muted []string, before int64, limit int) ([]*Notification, error) {
+	if muted == nil {
+		muted = []string{}
+	}
+	args := []any{limit, before, muted}
+	rows, err := s.db.Query(ctx, `SELECT `+notifCols+` FROM notifications WHERE ($2 = 0 OR id < $2) AND NOT (kind = ANY($3)) AND `+visibleNotif(bus, &args)+` ORDER BY id DESC LIMIT $1`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1192,12 +1625,15 @@ func (s *Store) ListNotifications(ctx context.Context, bus []string, before int6
 
 // UnreadNotifications counts visible notifications after the person's
 // watermark, and returns the newest visible id and the watermark itself.
-func (s *Store) UnreadNotifications(ctx context.Context, subject string, bus []string) (n int, last, read int64, err error) {
+func (s *Store) UnreadNotifications(ctx context.Context, subject string, bus []string, muted []string) (n int, last, read int64, err error) {
 	if err = s.db.QueryRow(ctx, `SELECT COALESCE((SELECT last_id FROM notification_reads WHERE subject = $1), 0)`, subject).Scan(&read); err != nil {
 		return
 	}
-	args := []any{read}
-	err = s.db.QueryRow(ctx, `SELECT count(*) FILTER (WHERE id > $1), COALESCE(max(id), 0) FROM notifications WHERE `+visibleNotif(bus, &args), args...).Scan(&n, &last)
+	if muted == nil {
+		muted = []string{}
+	}
+	args := []any{read, muted}
+	err = s.db.QueryRow(ctx, `SELECT count(*) FILTER (WHERE id > $1), COALESCE(max(id), 0) FROM notifications WHERE NOT (kind = ANY($2)) AND `+visibleNotif(bus, &args), args...).Scan(&n, &last)
 	return
 }
 
@@ -1205,4 +1641,13 @@ func (s *Store) MarkNotificationsRead(ctx context.Context, subject string, upTo 
 	_, err := s.db.Exec(ctx, `INSERT INTO notification_reads (subject, last_id) VALUES ($1, $2)
 		ON CONFLICT (subject) DO UPDATE SET last_id = GREATEST(notification_reads.last_id, $2)`, subject, upTo)
 	return err
+}
+
+// NotificationsSince lists notifications newer than t, newest first.
+func (s *Store) NotificationsSince(ctx context.Context, t time.Time, limit int) ([]*Notification, error) {
+	rows, err := s.db.Query(ctx, `SELECT `+notifCols+` FROM notifications WHERE created_at >= $1 ORDER BY id DESC LIMIT $2`, t, limit)
+	if err != nil {
+		return nil, err
+	}
+	return Collect(rows, scanNotif)
 }

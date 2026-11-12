@@ -38,8 +38,8 @@ enforced:
   encrypted: true
 outputs: [arn]
 `,
-		"tenants/acme/defaults/Bucket.yaml":  "apiVersion: pravaha/v1\nkind: Defaults\ntarget: Bucket\nspec:\n  versioning: false\n",
-		"tenants/other/defaults/Bucket.yaml": "apiVersion: pravaha/v1\nkind: Defaults\ntarget: Bucket\nspec:\n  name: other-tenant-secret-default\n",
+		"tenants/acme/defaults/Bucket.yaml":  "apiVersion: srustiops/v1\nkind: Defaults\ntarget: Bucket\nspec:\n  versioning: false\n",
+		"tenants/other/defaults/Bucket.yaml": "apiVersion: srustiops/v1\nkind: Defaults\ntarget: Bucket\nspec:\n  name: other-tenant-secret-default\n",
 	}
 	for k, v := range extra {
 		files[k] = v
@@ -117,7 +117,7 @@ func TestBuildModulesRejects(t *testing.T) {
 		pkgs  func(fakeFetch)
 		check string
 	}{
-		"bad defaults": {repo: map[string]string{"tenants/acme/defaults/Bucket.yaml": "apiVersion: pravaha/v1\nkind: Defaults\ntarget: Bucket\nspec:\n  encrypted: false\n"}, check: "Defaults for tenant acme"},
+		"bad defaults": {repo: map[string]string{"tenants/acme/defaults/Bucket.yaml": "apiVersion: srustiops/v1\nkind: Defaults\ntarget: Bucket\nspec:\n  encrypted: false\n"}, check: "Defaults for tenant acme"},
 		"git nested": {pkgs: func(f fakeFetch) {
 			f["acme/bucket/aws@1.0.0"]["main.tf"] = []byte("variable \"name\" {}\nvariable \"versioning\" {}\nvariable \"encrypted\" {}\nmodule \"x\" {\n  source = \"git::https://evil.example/x\"\n}\noutput \"arn\" { value = 1 }\n")
 		}, check: "Nested modules"},
@@ -155,14 +155,14 @@ func TestBuildModulesRejects(t *testing.T) {
 }
 
 func TestBuildPolicies(t *testing.T) {
-	deny := "package pravaha.policy\n\ndeny contains msg if {\n\tsome r in input.plan.resources\n\tr.type == \"aws_s3_bucket\"\n\tmsg := \"no buckets\"\n}\n"
-	test := "package pravaha.policy_test\n\nimport data.pravaha.policy\n\ntest_denies if {\n\tcount(policy.deny) == 1 with input as {\"plan\": {\"resources\": [{\"type\": \"aws_s3_bucket\"}]}}\n}\n\ntest_allows if {\n\tcount(policy.deny) == 0 with input as {\"plan\": {\"resources\": []}}\n}\n"
+	deny := "package srustiops.policy\n\ndeny contains msg if {\n\tsome r in input.plan.resources\n\tr.type == \"aws_s3_bucket\"\n\tmsg := \"no buckets\"\n}\n"
+	test := "package srustiops.policy_test\n\nimport data.srustiops.policy\n\ntest_denies if {\n\tcount(policy.deny) == 1 with input as {\"plan\": {\"resources\": [{\"type\": \"aws_s3_bucket\"}]}}\n}\n\ntest_allows if {\n\tcount(policy.deny) == 0 with input as {\"plan\": {\"resources\": []}}\n}\n"
 	files := map[string][]byte{
 		"policies/global/no-buckets.rego":                    []byte(deny),
 		"policies/global/no-buckets_test.rego":               []byte(test),
-		"policies/tenants/acme/entities/retail/tagging.rego": []byte("package pravaha.policy\n\ndeny contains \"x\" if false\n"),
-		"policies/tenants/acme/entities/retail/tagging.yaml": []byte("apiVersion: pravaha/v1\nkind: PolicySet\nlevel: advisory\ndescription: tags\n"),
-		"policies/tenants/globex/secret.rego":                []byte("package pravaha.policy\n"),
+		"policies/tenants/acme/entities/retail/tagging.rego": []byte("package srustiops.policy\n\ndeny contains \"x\" if false\n"),
+		"policies/tenants/acme/entities/retail/tagging.yaml": []byte("apiVersion: srustiops/v1\nkind: PolicySet\nlevel: advisory\ndescription: tags\n"),
+		"policies/tenants/globex/secret.rego":                []byte("package srustiops.policy\n"),
 	}
 	res := BuildPolicies(context.Background(), PoliciesInput{Files: files, Path: "policies", Tenant: "acme", Revision: "r1"})
 	if !res.OK() {

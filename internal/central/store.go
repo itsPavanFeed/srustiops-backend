@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/identity"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/store"
+	"github.com/itsPavanFeed/srustiops-backend/internal/identity"
+	"github.com/itsPavanFeed/srustiops-backend/internal/store"
 )
 
 //go:embed migrations/*.sql
@@ -46,15 +46,16 @@ type User struct {
 	Email         string     `json:"email"`
 	Name          string     `json:"name"`
 	PlatformAdmin bool       `json:"platform_admin"`
+	PlatformRoot  bool       `json:"platform_root,omitempty"` // the one recovery account
 	CreatedAt     time.Time  `json:"created_at"`
 	DisabledAt    *time.Time `json:"disabled_at,omitempty"`
 }
 
-const userCols = `id, email, name, platform_admin, created_at, disabled_at`
+const userCols = `id, email, name, platform_admin, platform_root, created_at, disabled_at`
 
 func scanUser(r pgx.Row) (*User, error) {
 	var u User
-	err := r.Scan(&u.ID, &u.Email, &u.Name, &u.PlatformAdmin, &u.CreatedAt, &u.DisabledAt)
+	err := r.Scan(&u.ID, &u.Email, &u.Name, &u.PlatformAdmin, &u.PlatformRoot, &u.CreatedAt, &u.DisabledAt)
 	return &u, store.NotFound(err)
 }
 
@@ -68,6 +69,80 @@ func (s *Store) EnsureUser(ctx context.Context, email, name string, platformAdmi
 		if _, err := s.Pool().Exec(ctx, `UPDATE users SET platform_admin = true WHERE email = $1`, email); err != nil {
 			return nil, err
 		}
+	}
+	return s.UserByEmail(ctx, email)
+}
+
+// ErrRootExists: the platform already has its root account (another email).
+var ErrRootExists = errors.New("the platform root already exists")
+
+// RotateRoot makes email the platform root (when there is none yet) and gives
+// it a single live credential: every earlier token and session of the root is
+// revoked. It refuses an email other than the existing root's.
+func (s *Store) RotateRoot(ctx context.Context, email, by string, hash []byte, expires time.Time) (*User, *Token, error) {
+	tx, err := s.Pool().Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback(ctx)
+	var rootEmail string
+	err = tx.QueryRow(ctx, `SELECT email FROM users WHERE platform_root FOR UPDATE`).Scan(&rootEmail)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		if _, err := tx.Exec(ctx, `INSERT INTO users (email, name, platform_admin, platform_root, created_by) VALUES ($1, '', true, true, $2)
+			ON CONFLICT (email) DO UPDATE SET platform_admin = true, platform_root = true`, email, by); err != nil {
+			return nil, nil, err
+		}
+	case err != nil:
+		return nil, nil, err
+	case rootEmail != email:
+		return nil, nil, fmt.Errorf("%w: %s", ErrRootExists, rootEmail)
+	}
+	u, err := scanUser(tx.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE email = $1`, email))
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE api_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, u.ID); err != nil {
+		return nil, nil, err
+	}
+	var t Token
+	if err := tx.QueryRow(ctx, `INSERT INTO api_tokens (user_id, name, token_hash, created_by, expires_at) VALUES ($1, 'recovery', $2, $3, $4)
+		RETURNING id, name, created_by, created_at, expires_at, last_used_at, revoked_at`, u.ID, hash, by, expires).
+		Scan(&t.ID, &t.Name, &t.CreatedBy, &t.CreatedAt, &t.ExpiresAt, &t.LastUsedAt, &t.RevokedAt); err != nil {
+		return nil, nil, err
+	}
+	return u, &t, tx.Commit(ctx)
+}
+
+// PlatformAdmins lists the platform admins, root first.
+func (s *Store) PlatformAdmins(ctx context.Context) ([]*User, error) {
+	rows, err := s.Pool().Query(ctx, `SELECT `+userCols+` FROM users WHERE platform_admin ORDER BY platform_root DESC, email`)
+	if err != nil {
+		return nil, err
+	}
+	return store.Collect(rows, scanUser)
+}
+
+// SetPlatformAdmin grants or removes platform admin; the root keeps it.
+// Removing it also ends the person's sessions, so the change is immediate.
+func (s *Store) SetPlatformAdmin(ctx context.Context, email string, admin bool, by string) (*User, error) {
+	if admin {
+		if _, err := s.Pool().Exec(ctx, `INSERT INTO users (email, name, platform_admin, created_by) VALUES ($1, '', true, $2)
+			ON CONFLICT (email) DO UPDATE SET platform_admin = true`, email, by); err != nil {
+			return nil, err
+		}
+		return s.UserByEmail(ctx, email)
+	}
+	tag, err := s.Pool().Exec(ctx, `UPDATE users SET platform_admin = false WHERE email = $1 AND platform_admin AND NOT platform_root`, email)
+	if err != nil {
+		return nil, err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	if _, err := s.Pool().Exec(ctx, `UPDATE api_tokens SET revoked_at = now() WHERE revoked_at IS NULL AND created_by = 'sso'
+		AND user_id = (SELECT id FROM users WHERE email = $1)`, email); err != nil {
+		return nil, err
 	}
 	return s.UserByEmail(ctx, email)
 }
@@ -124,27 +199,62 @@ func (s *Store) RevokeToken(ctx context.Context, userID, id string) error {
 // ---- tenants & entities ----
 
 type Tenant struct {
-	ID          string    `json:"id"`
-	Slug        string    `json:"slug"`
-	Name        string    `json:"name"`
-	BackendURL  string    `json:"backend_url"`
-	ServerCAPEM string    `json:"server_ca_pem,omitempty"`
-	CreatedBy   string    `json:"created_by"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string `json:"id"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	BackendURL  string `json:"backend_url"`
+	ServerCAPEM string `json:"server_ca_pem,omitempty"`
+	// Connectivity is how central reaches the tenant plane: "direct" calls
+	// BackendURL; "tunnel" uses the tenant's outbound link, and BackendURL
+	// then only names the tenant API's TLS identity.
+	Connectivity string `json:"connectivity"`
+	// AccessSource is who decides roles: "central" (memberships here) or
+	// "tenant" (the tenant's own grants; memberships here are a synced copy).
+	AccessSource string     `json:"access_source"`
+	RequireIDP   bool       `json:"require_idp"`
+	SyncedAt     *time.Time `json:"directory_synced_at,omitempty"`
+	// Status is "pending" until the tenant's cluster is connected and
+	// healthy, then "active". Target is where it runs (eks, gke, aks, ...).
+	Status string `json:"status"`
+	Target string `json:"target,omitempty"`
+	// The tenant's directory keys, pinned on first contact over the link.
+	DirSignKey   string `json:"-"`
+	DirEncKey    string `json:"-"`
+	DirectorySeq int64  `json:"-"`
+	// ServerKeyPin is the tenant API key's fingerprint, pinned at bootstrap.
+	ServerKeyPin string `json:"server_key_pin,omitempty"`
+	// Kind is "trial" (created at once under the creation policy, ends at
+	// TrialEndsAt) or "production".
+	Kind        string     `json:"kind"`
+	TrialEndsAt *time.Time `json:"trial_ends_at,omitempty"`
+	RemovedAt   *time.Time `json:"removed_at,omitempty"`
+	// LinkSeenAt is when its link agent last reported (tunnel tenants).
+	LinkSeenAt *time.Time `json:"link_seen_at,omitempty"`
+	CreatedBy  string     `json:"created_by"`
+	CreatedAt  time.Time  `json:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at"`
 }
 
-const tenantCols = `id, slug, name, backend_url, server_ca_pem, created_by, created_at, updated_at`
+const tenantCols = `id, slug, name, backend_url, server_ca_pem, connectivity, access_source, require_idp, directory_synced_at, status, target, dir_sign_key, dir_enc_key, directory_seq, server_key_pin, kind, trial_ends_at, removed_at, created_by, created_at, updated_at, link_seen_at`
 
 func scanTenant(r pgx.Row) (*Tenant, error) {
 	var t Tenant
-	err := r.Scan(&t.ID, &t.Slug, &t.Name, &t.BackendURL, &t.ServerCAPEM, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt)
+	err := r.Scan(&t.ID, &t.Slug, &t.Name, &t.BackendURL, &t.ServerCAPEM, &t.Connectivity, &t.AccessSource, &t.RequireIDP, &t.SyncedAt, &t.Status, &t.Target, &t.DirSignKey, &t.DirEncKey, &t.DirectorySeq, &t.ServerKeyPin, &t.Kind, &t.TrialEndsAt, &t.RemovedAt, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &t.LinkSeenAt)
 	return &t, store.NotFound(err)
 }
 
 func (s *Store) CreateTenant(ctx context.Context, t *Tenant) (*Tenant, error) {
-	out, err := scanTenant(s.Pool().QueryRow(ctx, `INSERT INTO tenants (slug, name, backend_url, server_ca_pem, created_by) VALUES ($1, $2, $3, $4, $5) RETURNING `+tenantCols,
-		t.Slug, t.Name, t.BackendURL, t.ServerCAPEM, t.CreatedBy))
+	if t.Connectivity == "" {
+		t.Connectivity = "direct"
+	}
+	if t.Status == "" {
+		t.Status = "active"
+	}
+	if t.Kind == "" {
+		t.Kind = "production"
+	}
+	out, err := scanTenant(s.Pool().QueryRow(ctx, `INSERT INTO tenants (slug, name, backend_url, server_ca_pem, connectivity, status, target, created_by, kind, trial_ends_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING `+tenantCols,
+		t.Slug, t.Name, t.BackendURL, t.ServerCAPEM, t.Connectivity, t.Status, t.Target, t.CreatedBy, t.Kind, t.TrialEndsAt))
 	if store.IsUnique(err) {
 		return nil, ErrConflict
 	}
@@ -152,16 +262,27 @@ func (s *Store) CreateTenant(ctx context.Context, t *Tenant) (*Tenant, error) {
 }
 
 func (s *Store) UpdateTenant(ctx context.Context, t *Tenant) (*Tenant, error) {
-	return scanTenant(s.Pool().QueryRow(ctx, `UPDATE tenants SET name = $2, backend_url = $3, server_ca_pem = $4, updated_at = now() WHERE slug = $1 RETURNING `+tenantCols,
-		t.Slug, t.Name, t.BackendURL, t.ServerCAPEM))
+	if t.Connectivity == "" {
+		t.Connectivity = "direct"
+	}
+	return scanTenant(s.Pool().QueryRow(ctx, `UPDATE tenants SET name = $2,
+		server_key_pin = CASE WHEN backend_url = $3 AND server_ca_pem = $4 THEN server_key_pin ELSE '' END,
+		backend_url = $3, server_ca_pem = $4, connectivity = $5, updated_at = now() WHERE slug = $1 RETURNING `+tenantCols,
+		t.Slug, t.Name, t.BackendURL, t.ServerCAPEM, t.Connectivity))
+}
+
+// PinServerKey records the tenant API key fingerprint made at bootstrap.
+func (s *Store) PinServerKey(ctx context.Context, tenantID, pin string) error {
+	_, err := s.Pool().Exec(ctx, `UPDATE tenants SET server_key_pin = $2 WHERE id = $1`, tenantID, pin)
+	return err
 }
 
 func (s *Store) Tenant(ctx context.Context, slug string) (*Tenant, error) {
-	return scanTenant(s.Pool().QueryRow(ctx, `SELECT `+tenantCols+` FROM tenants WHERE slug = $1`, slug))
+	return scanTenant(s.Pool().QueryRow(ctx, `SELECT `+tenantCols+` FROM tenants WHERE slug = $1 AND status <> 'removed'`, slug))
 }
 
 func (s *Store) ListTenants(ctx context.Context) ([]*Tenant, error) {
-	rows, err := s.Pool().Query(ctx, `SELECT `+tenantCols+` FROM tenants ORDER BY slug`)
+	rows, err := s.Pool().Query(ctx, `SELECT `+tenantCols+` FROM tenants WHERE status <> 'removed' ORDER BY slug`)
 	if err != nil {
 		return nil, err
 	}
@@ -262,19 +383,28 @@ type Membership struct {
 	Role      string    `json:"role"`
 	CreatedBy string    `json:"created_by"`
 	CreatedAt time.Time `json:"created_at"`
+	// The person's activity: when last seen, and while they have never
+	// signed in, when their invitation lapses.
+	LastSeenAt      *time.Time `json:"last_seen_at,omitempty"`
+	InviteExpiresAt *time.Time `json:"invite_expires_at,omitempty"`
+	// Via names the team the role comes from ("" = granted to the person).
+	Via string `json:"via,omitempty"`
 }
 
-const memberSelect = `SELECT m.id, u.email, t.slug, COALESCE(e.slug, ''), COALESCE(b.slug, ''), m.role, m.created_by, m.created_at
+const memberSelect = `SELECT m.id, u.email, t.slug, COALESCE(e.slug, ''), COALESCE(b.slug, ''), m.role, m.created_by, m.created_at, u.last_seen_at, u.invite_expires_at
 	FROM memberships m JOIN users u ON u.id = m.user_id JOIN tenants t ON t.id = m.tenant_id
 	LEFT JOIN entities e ON e.id = m.entity_id LEFT JOIN business_units b ON b.id = m.bu_id`
 
 func scanMember(r pgx.Row) (*Membership, error) {
 	var m Membership
-	err := r.Scan(&m.ID, &m.Email, &m.Tenant, &m.Entity, &m.BU, &m.Role, &m.CreatedBy, &m.CreatedAt)
+	err := r.Scan(&m.ID, &m.Email, &m.Tenant, &m.Entity, &m.BU, &m.Role, &m.CreatedBy, &m.CreatedAt, &m.LastSeenAt, &m.InviteExpiresAt)
 	return &m, store.NotFound(err)
 }
 
 func (s *Store) AddMembership(ctx context.Context, userID, tenantID string, entityID, buID *string, role, by string) (*Membership, error) {
+	if err := s.checkPeople(ctx, s.Pool(), tenantID, []string{userID}); err != nil {
+		return nil, err
+	}
 	var id string
 	err := s.Pool().QueryRow(ctx, `INSERT INTO memberships (user_id, tenant_id, entity_id, bu_id, role, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
 		userID, tenantID, entityID, buID, role, by).Scan(&id)
@@ -316,19 +446,38 @@ func (s *Store) Principal(ctx context.Context, u *User, tenantSlug string) (*ide
 	if err != nil {
 		return nil, err
 	}
-	if len(ms) == 0 && !u.PlatformAdmin {
-		return nil, nil
+	// Roles of the teams the person is in count like their own.
+	rows, err = s.Pool().Query(ctx, teamRoleSelect+` WHERE tm.user_id = $1 AND t.slug = $2`, u.ID, tenantSlug)
+	if err != nil {
+		return nil, err
 	}
+	tms, err := store.Collect(rows, scanTeamRole)
+	if err != nil {
+		return nil, err
+	}
+	ms = append(ms, tms...)
 	t, err := s.Tenant(ctx, tenantSlug)
 	if err != nil {
 		return nil, err
+	}
+	// Platform admins hold standing access only while central decides access;
+	// a tenant that controls its own access lets them in only through support
+	// access it approved (mirrored here from its directory).
+	platform := u.PlatformAdmin && t.AccessSource != "tenant"
+	var support []string
+	if u.PlatformAdmin && t.AccessSource == "tenant" {
+		support = s.ActiveSupportRoles(ctx, t.ID, u.Email)
+	}
+	if len(ms) == 0 && !platform && len(support) == 0 {
+		return nil, nil
 	}
 	bus, err := s.BUs(ctx, t.ID)
 	if err != nil {
 		return nil, err
 	}
 	p := &identity.Principal{Subject: u.Email, Tenant: tenantSlug, TenantRoles: []string{}, EntityRoles: map[string][]string{},
-		BURoles: map[string][]string{}, BUEntity: map[string]string{}, PlatformAdmin: u.PlatformAdmin}
+		BURoles: map[string][]string{}, BUEntity: map[string]string{}, PlatformAdmin: platform}
+	p.TenantRoles = append(p.TenantRoles, support...)
 	for _, b := range bus {
 		p.BUEntity[b.Slug] = b.Entity
 	}
@@ -384,17 +533,67 @@ func (s *Store) OnlyInTenant(ctx context.Context, userID, tenantID string) (bool
 
 // ---- SSO ----
 
-func (s *Store) CreateAuthFlow(ctx context.Context, state, verifier, nonce string) error {
-	_, err := s.Pool().Exec(ctx, `INSERT INTO auth_flows (state, verifier, nonce) VALUES ($1, $2, $3)`, state, verifier, nonce)
+func (s *Store) CreateAuthFlow(ctx context.Context, provider, state, verifier, nonce string) error {
+	_, err := s.Pool().Exec(ctx, `INSERT INTO auth_flows (state, verifier, nonce, provider) VALUES ($1, $2, $3, $4)`, state, verifier, nonce, provider)
 	s.Pool().Exec(ctx, `DELETE FROM auth_flows WHERE created_at < now() - interval '1 hour'`)
 	return err
 }
 
 // TakeAuthFlow consumes a login flow (single use) if it is younger than ttl.
-func (s *Store) TakeAuthFlow(ctx context.Context, state string, ttl time.Duration) (verifier, nonce string, err error) {
-	err = s.Pool().QueryRow(ctx, `DELETE FROM auth_flows WHERE state = $1 AND created_at > now() - $2::interval RETURNING verifier, nonce`,
-		state, fmt.Sprintf("%d seconds", int(ttl.Seconds()))).Scan(&verifier, &nonce)
+// The flow must have been started for the same provider.
+func (s *Store) TakeAuthFlow(ctx context.Context, provider, state string, ttl time.Duration) (verifier, nonce string, err error) {
+	err = s.Pool().QueryRow(ctx, `DELETE FROM auth_flows WHERE state = $1 AND provider = $3 AND created_at > now() - $2::interval RETURNING verifier, nonce`,
+		state, fmt.Sprintf("%d seconds", int(ttl.Seconds())), provider).Scan(&verifier, &nonce)
 	return verifier, nonce, store.NotFound(err)
+}
+
+type SSOProvider struct {
+	ID             string    `json:"id"`
+	ClientID       string    `json:"client_id"`
+	ClientSecret   []byte    `json:"-"`
+	AllowedDomains []string  `json:"allowed_domains"`
+	AllowedOrgs    []string  `json:"allowed_orgs"`
+	Enabled        bool      `json:"enabled"`
+	UpdatedBy      string    `json:"updated_by"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+const ssoCols = `id, client_id, client_secret, allowed_domains, allowed_orgs, enabled, updated_by, updated_at`
+
+func scanSSO(r pgx.Row) (*SSOProvider, error) {
+	var p SSOProvider
+	err := r.Scan(&p.ID, &p.ClientID, &p.ClientSecret, &p.AllowedDomains, &p.AllowedOrgs, &p.Enabled, &p.UpdatedBy, &p.UpdatedAt)
+	return &p, store.NotFound(err)
+}
+
+// PutSSOProvider stores a provider; a nil secret keeps the stored one.
+func (s *Store) PutSSOProvider(ctx context.Context, p *SSOProvider) error {
+	_, err := s.Pool().Exec(ctx, `INSERT INTO sso_providers (id, client_id, client_secret, allowed_domains, allowed_orgs, enabled, updated_by)
+		VALUES ($1, $2, COALESCE($3, ''::bytea), $4, $5, $6, $7)
+		ON CONFLICT (id) DO UPDATE SET client_id = $2, client_secret = COALESCE($3, sso_providers.client_secret), allowed_domains = $4,
+		  allowed_orgs = $5, enabled = $6, updated_by = $7, updated_at = now()`,
+		p.ID, p.ClientID, p.ClientSecret, p.AllowedDomains, p.AllowedOrgs, p.Enabled, p.UpdatedBy)
+	return err
+}
+
+func (s *Store) SSOProvider(ctx context.Context, id string) (*SSOProvider, error) {
+	return scanSSO(s.Pool().QueryRow(ctx, `SELECT `+ssoCols+` FROM sso_providers WHERE id = $1`, id))
+}
+
+func (s *Store) ListSSOProviders(ctx context.Context) ([]*SSOProvider, error) {
+	rows, err := s.Pool().Query(ctx, `SELECT `+ssoCols+` FROM sso_providers ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	return store.Collect(rows, scanSSO)
+}
+
+func (s *Store) DeleteSSOProvider(ctx context.Context, id string) error {
+	tag, err := s.Pool().Exec(ctx, `DELETE FROM sso_providers WHERE id = $1`, id)
+	if err == nil && tag.RowsAffected() == 0 {
+		return store.ErrNotFound
+	}
+	return err
 }
 
 func (s *Store) CreateAuthCode(ctx context.Context, hash []byte, userID string, ttl time.Duration) error {

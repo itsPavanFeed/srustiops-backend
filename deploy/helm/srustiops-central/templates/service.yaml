@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "central.name" . }}
+  labels: {{- include "central.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  selector: {{- include "central.selector" . | nindent 4 }}
+  ports:
+    - { name: https, port: {{ .Values.service.port }}, targetPort: https }
+{{- if .Values.link.enabled }}
+---
+# The tenant link gateway, for agents dialling out from tenants. TLS passes
+# through: agents present client certificates.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "central.name" . }}-link
+  labels: {{- include "central.labels" . | nindent 4 }}
+  {{- with .Values.link.service.annotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.link.service.type }}
+  selector: {{- include "central.selector" . | nindent 4 }}
+  ports:
+    - { name: link, port: {{ .Values.link.service.port }}, targetPort: link }
+{{- end }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "central.name" . }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: {{- include "central.selector" . | nindent 6 }}

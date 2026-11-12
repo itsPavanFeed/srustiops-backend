@@ -17,11 +17,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/contracts"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/githubapp"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/identity"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/release"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/store"
+	"github.com/itsPavanFeed/srustiops-backend/internal/contracts"
+	"github.com/itsPavanFeed/srustiops-backend/internal/githubapp"
+	"github.com/itsPavanFeed/srustiops-backend/internal/identity"
+	"github.com/itsPavanFeed/srustiops-backend/internal/release"
+	"github.com/itsPavanFeed/srustiops-backend/internal/store"
 )
 
 // How a module or policy release reaches production:
@@ -245,7 +245,7 @@ func (s *Server) mergeReleasePR(ctx context.Context, rel *store.Release, c *Rele
 		return fmt.Errorf("pull request #%d moved on to %s after release %d was built from %s; it was not merged", pr.Number, short(pr.Head.SHA), rel.Number, short(rel.Revision))
 	}
 	sha, err := app.MergeSHA(ctx, inst, c.Repo, pr.Number, rel.Revision,
-		fmt.Sprintf("%s (#%d)", pr.Title, pr.Number), fmt.Sprintf("Activated in Cloud Pravaha as %s release %d after DevOps approval.", strings.ToLower(releaseTitle(rel.Kind)), rel.Number))
+		fmt.Sprintf("%s (#%d)", pr.Title, pr.Number), fmt.Sprintf("Activated in SrustiOps as %s release %d after DevOps approval.", strings.ToLower(releaseTitle(rel.Kind)), rel.Number))
 	if err != nil {
 		return err
 	}
@@ -300,7 +300,7 @@ func (s *Server) releaseGitHub(ctx context.Context, c *ReleaseSource) (*githubap
 	return app, inst, nil
 }
 
-func statusContext(kind string) string { return "pravaha/release-" + kind }
+func statusContext(kind string) string { return "srustiops/release-" + kind }
 
 func (s *Server) releaseLink(rel *store.Release) string {
 	return strings.TrimRight(s.cfg.CentralURL, "/") + "/#/t/" + s.cfg.Tenant + "/settings/releases/" + rel.Kind + "/" + rel.ID
@@ -330,7 +330,7 @@ func (s *Server) releaseComment(ctx context.Context, c *ReleaseSource, rel *stor
 		return
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "### Cloud Pravaha · %s release %d — %s\n\n", strings.ToLower(releaseTitle(rel.Kind)), rel.Number, rel.Status)
+	fmt.Fprintf(&b, "### SrustiOps · %s release %d — %s\n\n", strings.ToLower(releaseTitle(rel.Kind)), rel.Number, rel.Status)
 	fmt.Fprintf(&b, "Built from `%s`.\n\n", short(rel.Revision))
 	for _, ch := range checks {
 		mark := "✅"
@@ -351,9 +351,9 @@ func (s *Server) releaseComment(ctx context.Context, c *ReleaseSource, rel *stor
 		}
 	}
 	if rel.Status == "ready" {
-		b.WriteString("\nNext: request activation in Cloud Pravaha. DevOps approves it, the release becomes active, and this pull request is merged automatically.\n")
+		b.WriteString("\nNext: request activation in SrustiOps. DevOps approves it, the release becomes active, and this pull request is merged automatically.\n")
 	}
-	fmt.Fprintf(&b, "\n[Open in Cloud Pravaha](%s)\n", s.releaseLink(rel))
+	fmt.Fprintf(&b, "\n[Open in SrustiOps](%s)\n", s.releaseLink(rel))
 	key := fmt.Sprintf("release_comment_%s_%d", rel.Kind, *rel.PRNumber)
 	var prev struct {
 		ID int64 `json:"id"`
@@ -685,12 +685,12 @@ func (s *Server) commitChange(ctx context.Context, c *ReleaseSource, rel *store.
 	}
 	rnd := make([]byte, 3)
 	rand.Read(rnd)
-	branch := fmt.Sprintf("pravaha/%s-%d-%s", rel.Kind, rel.Number, hex.EncodeToString(rnd))
+	branch := fmt.Sprintf("srustiops/%s-%d-%s", rel.Kind, rel.Number, hex.EncodeToString(rnd))
 	base, err := app.BranchSHA(ctx, inst, c.Repo, c.Branch)
 	if err == nil {
 		err = app.CreateBranch(ctx, inst, c.Repo, branch, base)
 	}
-	msg := fmt.Sprintf("%s (requested by %s in Cloud Pravaha)", title, author)
+	msg := fmt.Sprintf("%s (requested by %s in SrustiOps)", title, author)
 	for _, p := range paths {
 		if err != nil {
 			break
@@ -720,7 +720,7 @@ func (s *Server) commitChange(ctx context.Context, c *ReleaseSource, rel *store.
 	if err := s.store.SetReleasePR(ctx, rel.ID, head, 0, "", branch); err != nil {
 		return err
 	}
-	prBody := fmt.Sprintf("Changed in Cloud Pravaha by **%s**; built and checked before this pull request was opened.\n\n%s\n\nFiles:\n", author, strings.TrimSpace(body))
+	prBody := fmt.Sprintf("Changed in SrustiOps by **%s**; built and checked before this pull request was opened.\n\n%s\n\nFiles:\n", author, strings.TrimSpace(body))
 	for _, p := range paths {
 		prBody += "- `" + p + "`\n"
 	}

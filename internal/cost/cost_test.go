@@ -3,7 +3,7 @@ package cost
 import (
 	"testing"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/policy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/policy"
 )
 
 func TestEstimate(t *testing.T) {

@@ -26,7 +26,7 @@ Every resource is a **kind** from the approved catalog (for example S3Bucket, VP
 }
 ```
 
-In a contracts repository the same stack is a folder with one YAML file per resource (apiVersion: pravaha/v1, kind, metadata.name, spec), using `ref: network.private_subnets` and `secretRef: vault://kv/app/db#password`.
+In a contracts repository the same stack is a folder with one YAML file per resource (apiVersion: srustiops/v1, kind, metadata.name, spec), using `ref: network.private_subnets` and `secretRef: vault://kv/app/db#password`.
 
 Rules: resource names are lowercase. `kind` names a catalog kind. `version` is optional; it defaults to the tenant's default version for the kind, or the latest approved one. Only the inputs the catalog lists may be set, and values must satisfy their type, pattern, allowed values and ranges. Enforced baseline inputs cannot be set at all. Leave out anything the defaults already cover: inputs resolve from the kind's defaults, then the tenant's defaults (per tier, prod or nonprod), then the stack's own values; string maps such as tags merge. A value of the form {"$ref": "instance.output"} wires one resource's catalog-declared output into another's input. Secrets never go into stacks: use {"$secret": "vault://<mount>/<path>#<key>"} (secretRef in YAML) to read a secret from the tenant's OpenBao/Vault at plan time. Inputs marked sensitive accept only a secret reference, and values that look like credentials are refused.
 
@@ -46,7 +46,7 @@ Only additions in a non-production environment are low risk. Low risk needs a ma
 
 Cost: each plan shows an approximate monthly delta from list prices for fixed-cost resources (clusters, NAT gateways, database and VM sizes). Usage-based charges are not included.
 
-Policies: built-in rules block open ingress from 0.0.0.0/0, forbidden resource types, destroys beyond the environment's limit and imports that would destroy. Tenants can add OPA (Rego) policy sets in package pravaha.policy that emit deny messages. Hard violations block the run. Advisory ones are shown to approvers.
+Policies: built-in rules block open ingress from 0.0.0.0/0, forbidden resource types, destroys beyond the environment's limit and imports that would destroy. Tenants can add OPA (Rego) policy sets in package srustiops.policy that emit deny messages. Hard violations block the run. Advisory ones are shown to approvers.
 
 ## Importing existing resources (backporting)
 
@@ -62,6 +62,6 @@ Each tenant can connect a contracts repository on GitHub or GitLab. The tenant p
 
 ## Adding a kind, and tenant defaults
 
-The catalog lives in the cloud-pravaha-modules repository. Each kind wraps one public registry module, pinned to exact versions, with a security baseline. To request a kind, open a pull request that adds a YAML file under catalog/modules/<cloud>/; tenant defaults live in tenants/<tenant>/defaults/<Kind>.yaml. The folder's code owners review it. Custom modules and Git or HTTP module sources are not allowed.
+The catalog lives in the srustiops-modules repository. Each kind wraps one public registry module, pinned to exact versions, with a security baseline. To request a kind, open a pull request that adds a YAML file under catalog/modules/<cloud>/; tenant defaults live in tenants/<tenant>/defaults/<Kind>.yaml. The folder's code owners review it. Custom modules and Git or HTTP module sources are not allowed.
 
 The platform builds the repository into a module release (Tenant settings → Releases): it validates the kinds and the tenant's defaults, vendors every module from the registry pinned to a commit, pins nested modules to approved versions, and checks the kinds against their modules. A tenant admin deploys the release (or rolls back to an older one); runs then use only the deployed release and never download modules from the internet. Policy releases do the same for Rego policy sets and their tests.

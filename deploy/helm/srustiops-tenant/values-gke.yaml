@@ -1,0 +1,26 @@
+# Tenant on GKE (T1 in the central VPC: connectivity direct; T3 outside it: tunnel).
+# Use with: -f values.yaml -f values-gke.yaml. Prerequisites: deploy/landing/gcp.
+connectivity: tunnel
+link:
+  gatewayURL: https://link.srustiops.example.com
+  storageClass: standard-rwo
+# Workload Identity Federation for GKE.
+serviceAccountAnnotations:
+  iam.gke.io/gcp-service-account: <tenant_service_account>   # Cloud Storage, Cloud KMS, Secret Manager
+runner:
+  serviceAccountAnnotations:
+    iam.gke.io/gcp-service-account: <runner_service_account>
+# Master key from Secret Manager through the secrets-store CSI driver (GCP provider).
+masterKey:
+  source: csi
+  secretProviderClass: srustiops-master-key
+bucket:
+  url: gs://<bucket>
+  credentials: workload   # the tenant service account (Workload Identity), no HMAC keys
+networkPolicy:
+  egress:
+    enabled: true
+    to:
+      # Private Google Access (private.googleapis.com) and Cloud SQL private IP.
+      - to: [{ ipBlock: { cidr: 199.36.153.8/30 } }, { ipBlock: { cidr: <subnet_cidr> } }]
+        ports: [{ port: 443 }, { port: 5432 }, { port: 7233 }]

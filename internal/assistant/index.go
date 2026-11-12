@@ -11,7 +11,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
 )
 
 // Doc is one retrievable passage. IDs are stable and cited in answers as [id].

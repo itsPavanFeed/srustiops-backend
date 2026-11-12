@@ -1,0 +1,2470 @@
+{
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "description": "A SrustiOps API token or session",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "Central: sign-in, workspaces, people and roles, the platform, and the wrapper /api/v1/t/{tenant}/... to each workspace's API (see that workspace's /api/v1/openapi.json).",
+    "title": "SrustiOps central API",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/auth/config": {
+      "get": {
+        "operationId": "authConfig",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Auth config",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/discover": {
+      "get": {
+        "operationId": "discover",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Discover",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/enterprise-providers": {
+      "get": {
+        "operationId": "listSignInProviders",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List sign in providers",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/enterprise-providers/{id}": {
+      "delete": {
+        "operationId": "deleteSignInProvider",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete sign in provider",
+        "tags": [
+          "auth"
+        ]
+      },
+      "put": {
+        "operationId": "putSignInProvider",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put sign in provider",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/exchange": {
+      "post": {
+        "operationId": "authExchange",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Auth exchange",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/providers": {
+      "get": {
+        "operationId": "listSSOProviders",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List s s o providers",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/providers/{provider}": {
+      "delete": {
+        "operationId": "deleteSSOProvider",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete s s o provider",
+        "tags": [
+          "auth"
+        ]
+      },
+      "put": {
+        "operationId": "putSSOProvider",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put s s o provider",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "me",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/me/tokens": {
+      "get": {
+        "operationId": "listOwnTokens",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List own tokens",
+        "tags": [
+          "me"
+        ]
+      },
+      "post": {
+        "operationId": "createOwnToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create own token",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/me/tokens/{id}": {
+      "delete": {
+        "operationId": "revokeOwnToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Revoke own token",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/me/workspaces": {
+      "get": {
+        "operationId": "workspaces",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Workspaces",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "operationId": "openAPI",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Open a p i",
+        "tags": [
+          "openapi.json"
+        ]
+      }
+    },
+    "/api/v1/platform/admins": {
+      "get": {
+        "operationId": "listPlatformAdmins",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List platform admins",
+        "tags": [
+          "admins"
+        ]
+      }
+    },
+    "/api/v1/platform/admins/{email}": {
+      "delete": {
+        "operationId": "setPlatformAdmin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Set platform admin",
+        "tags": [
+          "admins"
+        ]
+      },
+      "put": {
+        "operationId": "setPlatformAdmin",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Set platform admin",
+        "tags": [
+          "admins"
+        ]
+      }
+    },
+    "/api/v1/platform/alerts": {
+      "get": {
+        "operationId": "getAlertSettings",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get alert settings",
+        "tags": [
+          "alerts"
+        ]
+      },
+      "put": {
+        "operationId": "putAlertSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put alert settings",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/platform/alerts/test": {
+      "post": {
+        "operationId": "testAlert",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test alert",
+        "tags": [
+          "alerts"
+        ]
+      }
+    },
+    "/api/v1/platform/attention": {
+      "get": {
+        "operationId": "platformAttention",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Platform attention",
+        "tags": [
+          "attention"
+        ]
+      }
+    },
+    "/api/v1/platform/audit": {
+      "get": {
+        "operationId": "platformAuditLog",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Platform audit log",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/platform/audit-export": {
+      "delete": {
+        "operationId": "deletePlatformExport",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete platform export",
+        "tags": [
+          "audit-export"
+        ]
+      },
+      "get": {
+        "operationId": "getPlatformExport",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get platform export",
+        "tags": [
+          "audit-export"
+        ]
+      },
+      "put": {
+        "operationId": "putPlatformExport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put platform export",
+        "tags": [
+          "audit-export"
+        ]
+      }
+    },
+    "/api/v1/platform/audit/verify": {
+      "get": {
+        "operationId": "verifyPlatformAudit",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Verify platform audit",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/platform/fleet": {
+      "get": {
+        "operationId": "getFleet",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get fleet",
+        "tags": [
+          "fleet"
+        ]
+      }
+    },
+    "/api/v1/platform/fleet/rollout/{action}": {
+      "post": {
+        "operationId": "controlRollout",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "action",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Control rollout",
+        "tags": [
+          "fleet"
+        ]
+      }
+    },
+    "/api/v1/platform/fleet/rollouts": {
+      "post": {
+        "operationId": "startRollout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Start rollout",
+        "tags": [
+          "fleet"
+        ]
+      }
+    },
+    "/api/v1/platform/plans": {
+      "get": {
+        "operationId": "listPlans",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List plans",
+        "tags": [
+          "plans"
+        ]
+      }
+    },
+    "/api/v1/platform/plans/{name}": {
+      "delete": {
+        "operationId": "deletePlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete plan",
+        "tags": [
+          "plans"
+        ]
+      },
+      "put": {
+        "operationId": "putPlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put plan",
+        "tags": [
+          "plans"
+        ]
+      }
+    },
+    "/api/v1/provisioner/blueprints": {
+      "get": {
+        "operationId": "provisionerBlueprints",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Provisioner blueprints",
+        "tags": [
+          "provisioner"
+        ]
+      }
+    },
+    "/api/v1/rate-limits": {
+      "get": {
+        "operationId": "getRateLimits",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get rate limits",
+        "tags": [
+          "rate-limits"
+        ]
+      },
+      "put": {
+        "operationId": "putRateLimits",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put rate limits",
+        "tags": [
+          "rate-limits"
+        ]
+      }
+    },
+    "/api/v1/tenants": {
+      "get": {
+        "operationId": "listTenants",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List tenants",
+        "tags": [
+          "tenants"
+        ]
+      },
+      "post": {
+        "operationId": "onboardTenant",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Onboard tenant",
+        "tags": [
+          "tenants"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}": {
+      "delete": {
+        "operationId": "removeWorkspace",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Remove workspace",
+        "tags": [
+          "tenants"
+        ]
+      },
+      "get": {
+        "operationId": "getTenant",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get tenant",
+        "tags": [
+          "tenants"
+        ]
+      },
+      "put": {
+        "operationId": "updateTenant",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Update tenant",
+        "tags": [
+          "tenants"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/access/sync": {
+      "post": {
+        "operationId": "syncAccess",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Sync access",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/access/takeover": {
+      "post": {
+        "operationId": "takeoverAccess",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Takeover access",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/approvers": {
+      "get": {
+        "operationId": "listApprovers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List approvers",
+        "tags": [
+          "approvers"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/bus": {
+      "get": {
+        "operationId": "listBUs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List b us",
+        "tags": [
+          "bus"
+        ]
+      },
+      "post": {
+        "operationId": "createBU",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create b u",
+        "tags": [
+          "bus"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/domains": {
+      "post": {
+        "operationId": "addTenantDomain",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Add tenant domain",
+        "tags": [
+          "domains"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/domains/{domain}": {
+      "delete": {
+        "operationId": "deleteTenantDomain",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete tenant domain",
+        "tags": [
+          "domains"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/domains/{domain}/verify": {
+      "post": {
+        "operationId": "verifyTenantDomain",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "domain",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Verify tenant domain",
+        "tags": [
+          "domains"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/entities": {
+      "get": {
+        "operationId": "listEntities",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List entities",
+        "tags": [
+          "entities"
+        ]
+      },
+      "post": {
+        "operationId": "createEntity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create entity",
+        "tags": [
+          "entities"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/health": {
+      "get": {
+        "operationId": "tenantHealth",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Tenant health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/idp": {
+      "delete": {
+        "operationId": "deleteTenantIdP",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete tenant id p",
+        "tags": [
+          "idp"
+        ]
+      },
+      "get": {
+        "operationId": "getTenantIdP",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get tenant id p",
+        "tags": [
+          "idp"
+        ]
+      },
+      "put": {
+        "operationId": "putTenantIdP",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put tenant id p",
+        "tags": [
+          "idp"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/install": {
+      "get": {
+        "operationId": "getInstall",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get install",
+        "tags": [
+          "install"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/install-tokens": {
+      "post": {
+        "operationId": "createInstallToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create install token",
+        "tags": [
+          "install-tokens"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/link": {
+      "get": {
+        "operationId": "tenantLink",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Tenant link",
+        "tags": [
+          "link"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/link/certificates": {
+      "delete": {
+        "operationId": "revokeLinkCert",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Revoke link cert",
+        "tags": [
+          "link"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/link/certificates/{serial}": {
+      "delete": {
+        "operationId": "revokeLinkCert",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "serial",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Revoke link cert",
+        "tags": [
+          "link"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/link/enrollments": {
+      "post": {
+        "operationId": "createEnrollment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create enrollment",
+        "tags": [
+          "link"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/members": {
+      "get": {
+        "operationId": "listMembers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List members",
+        "tags": [
+          "members"
+        ]
+      },
+      "post": {
+        "operationId": "addMember",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Add member",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/members/{id}": {
+      "delete": {
+        "operationId": "removeMember",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Remove member",
+        "tags": [
+          "members"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/plan": {
+      "put": {
+        "operationId": "setTenantPlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Set tenant plan",
+        "tags": [
+          "plan"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/promote": {
+      "post": {
+        "operationId": "promoteWorkspace",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Promote workspace",
+        "tags": [
+          "promote"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/provisioning": {
+      "get": {
+        "operationId": "getProvisioning",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get provisioning",
+        "tags": [
+          "provisioning"
+        ]
+      },
+      "post": {
+        "operationId": "startProvisioning",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Start provisioning",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/provisioning/{id}/approve": {
+      "post": {
+        "operationId": "approveProvisioning",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Approve provisioning",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/provisioning/{id}/connect": {
+      "post": {
+        "operationId": "connectProvisioning",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Connect provisioning",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/provisioning/{id}/handover": {
+      "post": {
+        "operationId": "handOverProvisioning",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Hand over provisioning",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/provisioning/{id}/logs": {
+      "get": {
+        "operationId": "provisioningLogs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Provisioning logs",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/provisioning/{id}/retry": {
+      "post": {
+        "operationId": "retryProvisioning",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Retry provisioning",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/provisioning/{id}/trust/check": {
+      "post": {
+        "operationId": "checkTrust",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Check trust",
+        "tags": [
+          "provisioning"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/scim-tokens": {
+      "get": {
+        "operationId": "listTenantSCIMTokens",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List tenant s c i m tokens",
+        "tags": [
+          "scim-tokens"
+        ]
+      },
+      "post": {
+        "operationId": "createTenantSCIMToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create tenant s c i m token",
+        "tags": [
+          "scim-tokens"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/scim-tokens/{id}": {
+      "delete": {
+        "operationId": "revokeTenantSCIMToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Revoke tenant s c i m token",
+        "tags": [
+          "scim-tokens"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/slack": {
+      "delete": {
+        "operationId": "deleteSlackApp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete slack app",
+        "tags": [
+          "slack"
+        ]
+      },
+      "get": {
+        "operationId": "getSlackApp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get slack app",
+        "tags": [
+          "slack"
+        ]
+      },
+      "put": {
+        "operationId": "putSlackApp",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put slack app",
+        "tags": [
+          "slack"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/support-requests": {
+      "get": {
+        "operationId": "supportRequests",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Support requests",
+        "tags": [
+          "support-requests"
+        ]
+      },
+      "post": {
+        "operationId": "supportRequests",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Support requests",
+        "tags": [
+          "support-requests"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/teams": {
+      "get": {
+        "operationId": "listTeams",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List teams",
+        "tags": [
+          "teams"
+        ]
+      },
+      "post": {
+        "operationId": "saveTeam",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Save team",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/teams/{team}": {
+      "delete": {
+        "operationId": "deleteTeam",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "team",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete team",
+        "tags": [
+          "teams"
+        ]
+      },
+      "put": {
+        "operationId": "saveTeam",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "team",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Save team",
+        "tags": [
+          "teams"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/tokens": {
+      "post": {
+        "operationId": "issueMemberToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Issue member token",
+        "tags": [
+          "tokens"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/usage": {
+      "get": {
+        "operationId": "tenantUsage",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Tenant usage",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/users/{email}/invitation": {
+      "post": {
+        "operationId": "extendInvitation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Extend invitation",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/tenants/{tenant}/users/{email}/roles": {
+      "put": {
+        "operationId": "setUserRoles",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Set user roles",
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/workspace-policy": {
+      "get": {
+        "operationId": "getWorkspacePolicy",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get workspace policy",
+        "tags": [
+          "workspace-policy"
+        ]
+      },
+      "put": {
+        "operationId": "putWorkspacePolicy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put workspace policy",
+        "tags": [
+          "workspace-policy"
+        ]
+      }
+    },
+    "/api/v1/workspace-requests": {
+      "get": {
+        "operationId": "listWorkspaceRequests",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List workspace requests",
+        "tags": [
+          "workspace-requests"
+        ]
+      },
+      "post": {
+        "operationId": "createWorkspaceRequest",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create workspace request",
+        "tags": [
+          "workspace-requests"
+        ]
+      }
+    },
+    "/api/v1/workspace-requests/{id}/{decision}": {
+      "post": {
+        "operationId": "decideWorkspaceRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "decision",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Decide workspace request",
+        "tags": [
+          "workspace-requests"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ]
+}

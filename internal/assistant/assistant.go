@@ -124,7 +124,7 @@ type Usage struct {
 }
 
 // The system prompt and tools never vary, so they stay cached across questions.
-const systemPrompt = `You are the Cloud Pravaha assistant, built into a self-hosted infrastructure-as-code platform that runs OpenTofu with approved public registry modules only.
+const systemPrompt = `You are the SrustiOps assistant, built into a self-hosted infrastructure-as-code platform that runs OpenTofu with approved public registry modules only.
 
 You help the people of one tenant: you explain how the platform works, find the right catalog modules, explain why a run needs certain approvals or was blocked by a policy, and draft stacks.
 

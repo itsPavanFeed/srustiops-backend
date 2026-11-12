@@ -1,0 +1,4632 @@
+{
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "description": "A SrustiOps API token or session",
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "A workspace's API, reached through central at /api/v1/t/{tenant}/... with a SrustiOps token. Paths below are relative to that prefix's /api/v1. Lists that can be long take ?limit= (and ?offset= or a cursor).",
+    "title": "SrustiOps tenant plane API",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/access": {
+      "get": {
+        "operationId": "getAccess",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get access",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/bindings": {
+      "get": {
+        "operationId": "listGroupBindings",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List group bindings",
+        "tags": [
+          "access"
+        ]
+      },
+      "post": {
+        "operationId": "addGroupBinding",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Add group binding",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/bindings/{id}": {
+      "delete": {
+        "operationId": "deleteGroupBinding",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete group binding",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/directory": {
+      "get": {
+        "operationId": "accessDirectory",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Access directory",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/grants": {
+      "get": {
+        "operationId": "listAccessGrants",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List access grants",
+        "tags": [
+          "access"
+        ]
+      },
+      "post": {
+        "operationId": "addAccessGrant",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Add access grant",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/grants/{id}": {
+      "delete": {
+        "operationId": "deleteAccessGrant",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete access grant",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/groups/{group}/members": {
+      "put": {
+        "operationId": "setGroupMembers",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "group",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Set group members",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/import": {
+      "post": {
+        "operationId": "importAccess",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Import access",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/oidc/finish": {
+      "post": {
+        "operationId": "oidcFinish",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Oidc finish",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/oidc/start": {
+      "post": {
+        "operationId": "oidcStart",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Oidc start",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/saml/finish": {
+      "post": {
+        "operationId": "samlFinish",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Saml finish",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/saml/metadata": {
+      "get": {
+        "operationId": "samlSPMetadata",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Saml s p metadata",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/saml/start": {
+      "post": {
+        "operationId": "samlStart",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Saml start",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/settings": {
+      "put": {
+        "operationId": "putAccessSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put access settings",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/support": {
+      "get": {
+        "operationId": "listSupportGrants",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List support grants",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/support-requests": {
+      "post": {
+        "operationId": "requestSupport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Request support",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/access/support/{id}/{decision}": {
+      "post": {
+        "operationId": "decideSupportGrant",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "decision",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Decide support grant",
+        "tags": [
+          "access"
+        ]
+      }
+    },
+    "/api/v1/agent/claim": {
+      "post": {
+        "operationId": "claim",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Claim",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/runs/{id}/bundles/{sha}": {
+      "get": {
+        "operationId": "agentBundle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sha",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Agent bundle",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/runs/{id}/finish": {
+      "post": {
+        "operationId": "agentFinish",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Agent finish",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/runs/{id}/logs": {
+      "post": {
+        "operationId": "agentLogs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Agent logs",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/runs/{id}/outputs": {
+      "post": {
+        "operationId": "agentOutputs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Agent outputs",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/agent/runs/{id}/plan": {
+      "get": {
+        "operationId": "agentGetPlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Agent get plan",
+        "tags": [
+          "agent"
+        ]
+      },
+      "post": {
+        "operationId": "agentPlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Agent plan",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/v1/assistant": {
+      "get": {
+        "operationId": "assistantInfo",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Assistant info",
+        "tags": [
+          "assistant"
+        ]
+      }
+    },
+    "/api/v1/assistant/ask": {
+      "post": {
+        "operationId": "askAssistant",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Ask assistant",
+        "tags": [
+          "assistant"
+        ]
+      }
+    },
+    "/api/v1/audit": {
+      "get": {
+        "operationId": "listAudit",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List audit",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/audit/verify": {
+      "get": {
+        "operationId": "verifyAudit",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Verify audit",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
+    "/api/v1/backups": {
+      "get": {
+        "operationId": "listBackups",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List backups",
+        "tags": [
+          "backups"
+        ]
+      },
+      "post": {
+        "operationId": "createBackup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create backup",
+        "tags": [
+          "backups"
+        ]
+      }
+    },
+    "/api/v1/backups/schedule": {
+      "put": {
+        "operationId": "putBackupSchedule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put backup schedule",
+        "tags": [
+          "backups"
+        ]
+      }
+    },
+    "/api/v1/backups/{id}/download": {
+      "get": {
+        "operationId": "downloadBackup",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Download backup",
+        "tags": [
+          "backups"
+        ]
+      }
+    },
+    "/api/v1/backups/{id}/drill": {
+      "post": {
+        "operationId": "drillBackupHandler",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Drill backup handler",
+        "tags": [
+          "backups"
+        ]
+      }
+    },
+    "/api/v1/budgets/{bu}": {
+      "delete": {
+        "operationId": "deleteBudget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bu",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete budget",
+        "tags": [
+          "budgets"
+        ]
+      },
+      "put": {
+        "operationId": "putBudget",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "bu",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put budget",
+        "tags": [
+          "budgets"
+        ]
+      }
+    },
+    "/api/v1/catalog": {
+      "get": {
+        "operationId": "getCatalog",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get catalog",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/cloud-events": {
+      "get": {
+        "operationId": "listCloudEvents",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List cloud events",
+        "tags": [
+          "cloud-events"
+        ]
+      }
+    },
+    "/api/v1/connections": {
+      "get": {
+        "operationId": "listConnections",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List connections",
+        "tags": [
+          "connections"
+        ]
+      },
+      "post": {
+        "operationId": "createConnection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create connection",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/connections/test": {
+      "post": {
+        "operationId": "testNewConnection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test new connection",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}": {
+      "delete": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "deleteConnection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete connection",
+        "tags": [
+          "connections"
+        ]
+      },
+      "get": {
+        "operationId": "getConnection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get connection",
+        "tags": [
+          "connections"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "updateConnection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Update connection",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}/scan": {
+      "post": {
+        "operationId": "scanConnection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Scan connection",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/connections/{id}/test": {
+      "post": {
+        "operationId": "testConnection",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test connection",
+        "tags": [
+          "connections"
+        ]
+      }
+    },
+    "/api/v1/contracts": {
+      "get": {
+        "operationId": "getContracts",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get contracts",
+        "tags": [
+          "contracts"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "putContracts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put contracts",
+        "tags": [
+          "contracts"
+        ]
+      }
+    },
+    "/api/v1/contracts/sync": {
+      "post": {
+        "operationId": "syncContractsNow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Sync contracts now",
+        "tags": [
+          "contracts"
+        ]
+      }
+    },
+    "/api/v1/contracts/token": {
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "putContractsToken",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put contracts token",
+        "tags": [
+          "contracts"
+        ]
+      }
+    },
+    "/api/v1/costs": {
+      "get": {
+        "operationId": "getCosts",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get costs",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
+    "/api/v1/costs/refresh": {
+      "post": {
+        "operationId": "refreshCosts",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Refresh costs",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
+    "/api/v1/costs/settings": {
+      "put": {
+        "operationId": "putCostSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put cost settings",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
+    "/api/v1/decommission": {
+      "post": {
+        "operationId": "decommission",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Decommission",
+        "tags": [
+          "decommission"
+        ]
+      }
+    },
+    "/api/v1/environments": {
+      "get": {
+        "operationId": "listEnvironments",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List environments",
+        "tags": [
+          "environments"
+        ]
+      },
+      "post": {
+        "operationId": "createEnvironment",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create environment",
+        "tags": [
+          "environments"
+        ]
+      }
+    },
+    "/api/v1/environments/{id}": {
+      "delete": {
+        "operationId": "deleteEnvironment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete environment",
+        "tags": [
+          "environments"
+        ]
+      },
+      "get": {
+        "operationId": "getEnvironment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get environment",
+        "tags": [
+          "environments"
+        ]
+      },
+      "put": {
+        "operationId": "updateEnvironment",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Update environment",
+        "tags": [
+          "environments"
+        ]
+      }
+    },
+    "/api/v1/environments/{id}/check-now": {
+      "post": {
+        "operationId": "checkNow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Check now",
+        "tags": [
+          "environments"
+        ]
+      }
+    },
+    "/api/v1/environments/{id}/schedule": {
+      "get": {
+        "operationId": "getSchedule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get schedule",
+        "tags": [
+          "environments"
+        ]
+      },
+      "put": {
+        "operationId": "putSchedule",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put schedule",
+        "tags": [
+          "environments"
+        ]
+      }
+    },
+    "/api/v1/event-sources": {
+      "get": {
+        "operationId": "listEventSources",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List event sources",
+        "tags": [
+          "event-sources"
+        ]
+      },
+      "post": {
+        "operationId": "createEventSource",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create event source",
+        "tags": [
+          "event-sources"
+        ]
+      }
+    },
+    "/api/v1/event-sources/{id}": {
+      "delete": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "deleteEventSource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete event source",
+        "tags": [
+          "event-sources"
+        ]
+      }
+    },
+    "/api/v1/events/stream": {
+      "get": {
+        "operationId": "streamChanges",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Stream changes",
+        "tags": [
+          "events"
+        ]
+      }
+    },
+    "/api/v1/fleet": {
+      "get": {
+        "operationId": "getFleet",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get fleet",
+        "tags": [
+          "fleet"
+        ]
+      }
+    },
+    "/api/v1/fleet/target": {
+      "post": {
+        "operationId": "putFleetTarget",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put fleet target",
+        "tags": [
+          "fleet"
+        ]
+      }
+    },
+    "/api/v1/git-identities": {
+      "get": {
+        "operationId": "listGitIdentities",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List git identities",
+        "tags": [
+          "git-identities"
+        ]
+      },
+      "post": {
+        "operationId": "addGitIdentity",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Add git identity",
+        "tags": [
+          "git-identities"
+        ]
+      }
+    },
+    "/api/v1/git-identities/{provider}/{login}": {
+      "delete": {
+        "operationId": "deleteGitIdentity",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "login",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete git identity",
+        "tags": [
+          "git-identities"
+        ]
+      }
+    },
+    "/api/v1/integration-changes": {
+      "get": {
+        "operationId": "listChanges",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List changes",
+        "tags": [
+          "integration-changes"
+        ]
+      }
+    },
+    "/api/v1/integration-changes/{id}/approve": {
+      "post": {
+        "operationId": "decideChange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Decide change",
+        "tags": [
+          "integration-changes"
+        ]
+      }
+    },
+    "/api/v1/integration-changes/{id}/cancel": {
+      "post": {
+        "operationId": "decideChange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Decide change",
+        "tags": [
+          "integration-changes"
+        ]
+      }
+    },
+    "/api/v1/integration-changes/{id}/override": {
+      "post": {
+        "operationId": "decideChange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Decide change",
+        "tags": [
+          "integration-changes"
+        ]
+      }
+    },
+    "/api/v1/integration-changes/{id}/reject": {
+      "post": {
+        "operationId": "decideChange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Decide change",
+        "tags": [
+          "integration-changes"
+        ]
+      }
+    },
+    "/api/v1/integrations/assistant": {
+      "delete": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "deleteAssistantIntegration",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete assistant integration",
+        "tags": [
+          "assistant"
+        ]
+      },
+      "get": {
+        "operationId": "getAssistantIntegration",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get assistant integration",
+        "tags": [
+          "assistant"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "putAssistantIntegration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put assistant integration",
+        "tags": [
+          "assistant"
+        ]
+      }
+    },
+    "/api/v1/integrations/audit-export": {
+      "delete": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "deleteAuditExport",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete audit export",
+        "tags": [
+          "audit-export"
+        ]
+      },
+      "get": {
+        "operationId": "getAuditExport",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get audit export",
+        "tags": [
+          "audit-export"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "putAuditExport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put audit export",
+        "tags": [
+          "audit-export"
+        ]
+      }
+    },
+    "/api/v1/integrations/audit-export/test": {
+      "post": {
+        "operationId": "testAuditExport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test audit export",
+        "tags": [
+          "audit-export"
+        ]
+      }
+    },
+    "/api/v1/integrations/channels": {
+      "get": {
+        "operationId": "getChannels",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get channels",
+        "tags": [
+          "channels"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "putChannels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put channels",
+        "tags": [
+          "channels"
+        ]
+      }
+    },
+    "/api/v1/integrations/channels/test": {
+      "post": {
+        "operationId": "testChannels",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test channels",
+        "tags": [
+          "channels"
+        ]
+      }
+    },
+    "/api/v1/integrations/email": {
+      "delete": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "deleteEmailIntegration",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete email integration",
+        "tags": [
+          "email"
+        ]
+      },
+      "get": {
+        "operationId": "getEmailIntegration",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get email integration",
+        "tags": [
+          "email"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "putEmailIntegration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put email integration",
+        "tags": [
+          "email"
+        ]
+      }
+    },
+    "/api/v1/integrations/email/test": {
+      "post": {
+        "operationId": "testEmailIntegration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test email integration",
+        "tags": [
+          "email"
+        ]
+      }
+    },
+    "/api/v1/integrations/github": {
+      "delete": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "deleteGitHubIntegration",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete git hub integration",
+        "tags": [
+          "github"
+        ]
+      },
+      "get": {
+        "operationId": "getGitHubIntegration",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get git hub integration",
+        "tags": [
+          "github"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "putGitHubIntegration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put git hub integration",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/deliveries": {
+      "get": {
+        "operationId": "listGitHubDeliveries",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List git hub deliveries",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/integrations/github/test": {
+      "post": {
+        "operationId": "testGitHubIntegration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test git hub integration",
+        "tags": [
+          "github"
+        ]
+      }
+    },
+    "/api/v1/integrations/secret-store": {
+      "delete": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "deleteSecretStore",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete secret store",
+        "tags": [
+          "secret-store"
+        ]
+      },
+      "get": {
+        "operationId": "getSecretStore",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get secret store",
+        "tags": [
+          "secret-store"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "putSecretStore",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put secret store",
+        "tags": [
+          "secret-store"
+        ]
+      }
+    },
+    "/api/v1/integrations/secret-store/test": {
+      "post": {
+        "operationId": "testSecretStore",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test secret store",
+        "tags": [
+          "secret-store"
+        ]
+      }
+    },
+    "/api/v1/integrations/slack": {
+      "delete": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "deleteSlackIntegration",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete slack integration",
+        "tags": [
+          "slack"
+        ]
+      },
+      "get": {
+        "operationId": "getSlackIntegration",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get slack integration",
+        "tags": [
+          "slack"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "putSlackIntegration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put slack integration",
+        "tags": [
+          "slack"
+        ]
+      }
+    },
+    "/api/v1/integrations/slack/test": {
+      "post": {
+        "operationId": "testSlackIntegration",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test slack integration",
+        "tags": [
+          "slack"
+        ]
+      }
+    },
+    "/api/v1/inventory": {
+      "get": {
+        "operationId": "listInventory",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List inventory",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/adopt": {
+      "post": {
+        "operationId": "adoptResources",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Adopt resources",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/bulk-import": {
+      "post": {
+        "operationId": "bulkImport",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Bulk import",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/resource": {
+      "get": {
+        "operationId": "inventoryResource",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Inventory resource",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/scans": {
+      "get": {
+        "operationId": "listScans",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List scans",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/services": {
+      "get": {
+        "operationId": "inventoryServices",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Inventory services",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/api/v1/inventory/summary": {
+      "get": {
+        "operationId": "inventorySummary",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Inventory summary",
+        "tags": [
+          "inventory"
+        ]
+      }
+    },
+    "/api/v1/link/events": {
+      "post": {
+        "operationId": "linkEvent",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Link event",
+        "tags": [
+          "link"
+        ]
+      }
+    },
+    "/api/v1/link/keys": {
+      "get": {
+        "operationId": "linkKeysView",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Link keys view",
+        "tags": [
+          "link"
+        ]
+      }
+    },
+    "/api/v1/me": {
+      "get": {
+        "operationId": "me",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "me"
+        ]
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "operationId": "listNotifications",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/preferences": {
+      "get": {
+        "operationId": "getNotificationPrefs",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get notification prefs",
+        "tags": [
+          "notifications"
+        ]
+      },
+      "put": {
+        "operationId": "putNotificationPrefs",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put notification prefs",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/read": {
+      "post": {
+        "operationId": "readNotifications",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Read notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/notifications/unread": {
+      "get": {
+        "operationId": "unreadNotifications",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Unread notifications",
+        "tags": [
+          "notifications"
+        ]
+      }
+    },
+    "/api/v1/openapi.json": {
+      "get": {
+        "operationId": "openAPI",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Open a p i",
+        "tags": [
+          "openapi.json"
+        ]
+      }
+    },
+    "/api/v1/orgs": {
+      "get": {
+        "operationId": "listOrgs",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List orgs",
+        "tags": [
+          "orgs"
+        ]
+      },
+      "post": {
+        "operationId": "createOrg",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create org",
+        "tags": [
+          "orgs"
+        ]
+      }
+    },
+    "/api/v1/orgs/{id}": {
+      "delete": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "deleteOrg",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete org",
+        "tags": [
+          "orgs"
+        ]
+      },
+      "get": {
+        "operationId": "getOrg",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get org",
+        "tags": [
+          "orgs"
+        ]
+      },
+      "put": {
+        "description": "A change to a configured integration waits for DevOps approval (202 with the pending change); ?dry_run=1 validates only.",
+        "operationId": "updateOrg",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Update org",
+        "tags": [
+          "orgs"
+        ]
+      }
+    },
+    "/api/v1/orgs/{id}/mapping": {
+      "put": {
+        "operationId": "mapUnit",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Map unit",
+        "tags": [
+          "orgs"
+        ]
+      }
+    },
+    "/api/v1/orgs/{id}/onboard": {
+      "post": {
+        "operationId": "onboardOrg",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Onboard org",
+        "tags": [
+          "orgs"
+        ]
+      }
+    },
+    "/api/v1/orgs/{id}/sync": {
+      "post": {
+        "operationId": "syncOrg",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Sync org",
+        "tags": [
+          "orgs"
+        ]
+      }
+    },
+    "/api/v1/plan": {
+      "put": {
+        "operationId": "putPlanLimits",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put plan limits",
+        "tags": [
+          "plan"
+        ]
+      }
+    },
+    "/api/v1/policies": {
+      "get": {
+        "operationId": "listPolicies",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List policies",
+        "tags": [
+          "policies"
+        ]
+      },
+      "post": {
+        "operationId": "createPolicy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create policy",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/backtest": {
+      "post": {
+        "operationId": "backtestPolicy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Backtest policy",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/library": {
+      "get": {
+        "operationId": "policyLibrary",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Policy library",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/test": {
+      "post": {
+        "operationId": "testPolicy",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Test policy",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/{id}": {
+      "delete": {
+        "operationId": "deletePolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete policy",
+        "tags": [
+          "policies"
+        ]
+      },
+      "put": {
+        "operationId": "updatePolicy",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Update policy",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/pull-requests": {
+      "get": {
+        "operationId": "listPullRequests",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List pull requests",
+        "tags": [
+          "pull-requests"
+        ]
+      }
+    },
+    "/api/v1/pull-requests/{n}/plan": {
+      "post": {
+        "operationId": "replanPullRequest",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "n",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Replan pull request",
+        "tags": [
+          "pull-requests"
+        ]
+      }
+    },
+    "/api/v1/releases/cache": {
+      "get": {
+        "operationId": "bundleCacheStats",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Bundle cache stats",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}": {
+      "get": {
+        "operationId": "listReleases",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List releases",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/builds": {
+      "post": {
+        "operationId": "buildReleaseNow",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Build release now",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/changes": {
+      "post": {
+        "operationId": "proposeReleaseChange",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Propose release change",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/files": {
+      "get": {
+        "operationId": "getReleaseFile",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get release file",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/source": {
+      "get": {
+        "operationId": "getReleaseSource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get release source",
+        "tags": [
+          "releases"
+        ]
+      },
+      "put": {
+        "operationId": "putReleaseSource",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put release source",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/source/token": {
+      "put": {
+        "operationId": "putReleaseToken",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put release token",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/{id}": {
+      "get": {
+        "operationId": "getRelease",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get release",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/{id}/approve": {
+      "post": {
+        "operationId": "approveRelease",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Approve release",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/{id}/merge": {
+      "post": {
+        "operationId": "retryMerge",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Retry merge",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/{id}/override": {
+      "post": {
+        "operationId": "overrideRelease",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Override release",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/{id}/reject": {
+      "post": {
+        "operationId": "rejectRelease",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Reject release",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/releases/{kind}/{id}/request": {
+      "post": {
+        "operationId": "requestActivation",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Request activation",
+        "tags": [
+          "releases"
+        ]
+      }
+    },
+    "/api/v1/retention": {
+      "get": {
+        "operationId": "getRetention",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get retention",
+        "tags": [
+          "retention"
+        ]
+      },
+      "put": {
+        "operationId": "putRetention",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put retention",
+        "tags": [
+          "retention"
+        ]
+      }
+    },
+    "/api/v1/retention/prune": {
+      "post": {
+        "operationId": "pruneNow",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Prune now",
+        "tags": [
+          "retention"
+        ]
+      }
+    },
+    "/api/v1/runners": {
+      "get": {
+        "operationId": "listRunners",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List runners",
+        "tags": [
+          "runners"
+        ]
+      },
+      "post": {
+        "operationId": "createRunner",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create runner",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
+    "/api/v1/runners/{id}": {
+      "delete": {
+        "operationId": "revokeRunner",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Revoke runner",
+        "tags": [
+          "runners"
+        ]
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "operationId": "listRuns",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List runs",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}": {
+      "get": {
+        "operationId": "getRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}/approve": {
+      "post": {
+        "operationId": "approveRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Approve run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}/cancel": {
+      "post": {
+        "operationId": "cancelRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Cancel run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}/discard": {
+      "post": {
+        "operationId": "discardRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Discard run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}/live-to-code": {
+      "get": {
+        "operationId": "getLiveToCode",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get live to code",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "operationId": "applyLiveToCode",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Apply live to code",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}/logs": {
+      "get": {
+        "operationId": "getRunLogs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get run logs",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}/logs/stream": {
+      "get": {
+        "operationId": "streamRunLogs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Stream run logs",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{id}/override": {
+      "post": {
+        "operationId": "overrideRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Override run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/settings/risk": {
+      "get": {
+        "operationId": "getRiskSettings",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get risk settings",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "operationId": "putRiskSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put risk settings",
+        "tags": [
+          "settings"
+        ]
+      }
+    },
+    "/api/v1/stack-graph": {
+      "get": {
+        "operationId": "stackGraph",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Stack graph",
+        "tags": [
+          "stack-graph"
+        ]
+      }
+    },
+    "/api/v1/stack-templates": {
+      "get": {
+        "operationId": "listTemplates",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List templates",
+        "tags": [
+          "stack-templates"
+        ]
+      },
+      "post": {
+        "operationId": "createTemplate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create template",
+        "tags": [
+          "stack-templates"
+        ]
+      }
+    },
+    "/api/v1/stack-templates/{id}": {
+      "delete": {
+        "operationId": "deleteTemplate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete template",
+        "tags": [
+          "stack-templates"
+        ]
+      },
+      "get": {
+        "operationId": "getTemplate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get template",
+        "tags": [
+          "stack-templates"
+        ]
+      },
+      "put": {
+        "operationId": "updateTemplate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Update template",
+        "tags": [
+          "stack-templates"
+        ]
+      }
+    },
+    "/api/v1/stacks": {
+      "get": {
+        "operationId": "listStacks",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List stacks",
+        "tags": [
+          "stacks"
+        ]
+      },
+      "post": {
+        "operationId": "createStack",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create stack",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/preview": {
+      "post": {
+        "operationId": "previewStack",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Preview stack",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/propose": {
+      "post": {
+        "operationId": "proposeStack",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Propose stack",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}": {
+      "delete": {
+        "operationId": "deleteStack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Delete stack",
+        "tags": [
+          "stacks"
+        ]
+      },
+      "get": {
+        "operationId": "getStack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get stack",
+        "tags": [
+          "stacks"
+        ]
+      },
+      "put": {
+        "operationId": "updateStack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Update stack",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/clone": {
+      "post": {
+        "operationId": "cloneStack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Clone stack",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/contract": {
+      "get": {
+        "operationId": "getStackContract",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get stack contract",
+        "tags": [
+          "stacks"
+        ]
+      },
+      "put": {
+        "operationId": "putStackContract",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Put stack contract",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/dependencies": {
+      "get": {
+        "operationId": "stackDependencies",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Stack dependencies",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/lifecycle": {
+      "get": {
+        "operationId": "stackLifecycle",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Stack lifecycle",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/live-changes": {
+      "get": {
+        "operationId": "stackLiveChanges",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Stack live changes",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/lock": {
+      "delete": {
+        "operationId": "unlockStack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Unlock stack",
+        "tags": [
+          "stacks"
+        ]
+      },
+      "post": {
+        "operationId": "lockStack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Lock stack",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/outputs": {
+      "get": {
+        "operationId": "stackOutputs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Stack outputs",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/promote": {
+      "get": {
+        "operationId": "promotePreview",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Promote preview",
+        "tags": [
+          "stacks"
+        ]
+      },
+      "post": {
+        "operationId": "promoteStack",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Promote stack",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/resources": {
+      "get": {
+        "operationId": "stackResourceView",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Stack resource view",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/runs": {
+      "get": {
+        "operationId": "listStackRuns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List stack runs",
+        "tags": [
+          "stacks"
+        ]
+      },
+      "post": {
+        "operationId": "createRun",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Create run",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/stacks/{id}/state-versions": {
+      "get": {
+        "operationId": "listStateVersions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "List state versions",
+        "tags": [
+          "stacks"
+        ]
+      }
+    },
+    "/api/v1/usage": {
+      "get": {
+        "operationId": "getUsage",
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Get usage",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/webhooks/cloud/{source}": {
+      "post": {
+        "operationId": "cloudEventHook",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "source",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Cloud event hook",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/github": {
+      "post": {
+        "operationId": "githubWebhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Github webhook",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/api/v1/webhooks/queued": {
+      "post": {
+        "operationId": "queuedWebhook",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "JSON; errors are {\"error\": \"...\", \"details\": [...]}"
+          }
+        },
+        "summary": "Queued webhook",
+        "tags": [
+          "webhooks"
+        ]
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    }
+  ]
+}

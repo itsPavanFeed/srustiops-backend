@@ -1,0 +1,184 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "tenant.name" . }}
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccountAnnotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tenant.name" . }}
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/name: srustiops-tenant
+spec:
+  replicas: {{ .Values.replicas }}
+  # Upgrades (and fleet rollouts) never take the plane down: a new pod must
+  # be ready before an old one stops.
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 0, maxSurge: 1 }
+  selector:
+    matchLabels: { app.kubernetes.io/name: srustiops-tenant, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: srustiops-tenant
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.podLabels }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      serviceAccountName: {{ include "tenant.name" . }}
+      # Workload identity (bucket, KMS, secrets-store CSI) needs the projected token.
+      automountServiceAccountToken: {{ not (empty .Values.serviceAccountAnnotations) }}
+      securityContext: { runAsNonRoot: true, fsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
+      {{- with .Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: tenant
+          image: "{{ .Values.image.server }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["tenant"]
+          ports:
+            - { name: https, containerPort: 9443 }
+            {{- if .Values.metrics.enabled }}
+            - { name: metrics, containerPort: {{ .Values.metrics.port }} }
+            {{- end }}
+          env:
+            - { name: SRUSTIOPS_TENANT, value: {{ .Values.tenant | quote }} }
+            {{- if .Values.metrics.enabled }}
+            - { name: SRUSTIOPS_METRICS_LISTEN, value: ":{{ .Values.metrics.port }}" }
+            {{- end }}
+            - { name: SRUSTIOPS_LISTEN, value: ":9443" }
+            - { name: SRUSTIOPS_PUBLIC_URL, value: {{ .Values.publicURL | quote }} }
+            - { name: SRUSTIOPS_DATABASE_URL_FILE, value: /secrets/database-url }
+            {{- if include "srustiops.installed" . }}
+            - { name: SRUSTIOPS_MASTER_KEY_FILE, value: /keys/master-key }
+            - { name: SRUSTIOPS_BOOTSTRAP_RUNNER_TOKEN_FILE, value: /keys/runner-token }
+            {{- else if eq .Values.masterKey.source "csi" }}
+            - { name: SRUSTIOPS_MASTER_KEY_FILE, value: /kms/master-key }
+            {{- else }}
+            - { name: SRUSTIOPS_MASTER_KEY_FILE, value: /secrets/master-key }
+            {{- end }}
+            - { name: SRUSTIOPS_TLS_CERT, value: /tls/tls.crt }
+            - { name: SRUSTIOPS_TLS_KEY, value: /tls/tls.key }
+            {{- if eq .Values.connectivity "tunnel" }}
+            # Behind the link the gateway is the one address this plane reaches:
+            # it serves central's assertion keys; central.url stays the issuer.
+            - { name: SRUSTIOPS_CENTRAL_URL, value: {{ .Values.link.gatewayURL | quote }} }
+            - { name: SRUSTIOPS_CENTRAL_ISSUER, value: {{ default .Values.central.url .Values.central.issuer | quote }} }
+            {{- if .Values.link.serverCASecret }}
+            - { name: SRUSTIOPS_CENTRAL_CA_FILE, value: /gateway-ca/ca.crt }
+            {{- end }}
+            {{- else }}
+            - { name: SRUSTIOPS_CENTRAL_URL, value: {{ .Values.central.url | quote }} }
+            {{- with .Values.central.issuer }}
+            - { name: SRUSTIOPS_CENTRAL_ISSUER, value: {{ . | quote }} }
+            {{- end }}
+            {{- end }}
+            - { name: SRUSTIOPS_CENTRAL_CLIENT_CA, value: /central-ca/ca.crt }
+            {{- with .Values.bucket.url }}
+            - { name: SRUSTIOPS_BUCKET_URL, value: {{ . | quote }} }
+            {{- if eq $.Values.bucket.credentials "keys" }}
+            - { name: SRUSTIOPS_BUCKET_ACCESS_KEY_FILE, value: /secrets/bucket-access-key }
+            - { name: SRUSTIOPS_BUCKET_SECRET_KEY_FILE, value: /secrets/bucket-secret-key }
+            {{- end }}
+            {{- end }}
+            {{- if .Values.assistant.enabled }}
+            - { name: SRUSTIOPS_ASSISTANT_API_KEY_FILE, value: /secrets/assistant-api-key }
+            - { name: SRUSTIOPS_ASSISTANT_MODEL, value: {{ .Values.assistant.model | quote }} }
+            - { name: SRUSTIOPS_ASSISTANT_EFFORT, value: {{ .Values.assistant.effort | quote }} }
+            {{- with .Values.assistant.baseURL }}
+            - { name: SRUSTIOPS_ASSISTANT_BASE_URL, value: {{ . | quote }} }
+            {{- end }}
+            {{- end }}
+            # Release bundles are cached in memory and here, so the bucket or
+            # database is read once per bundle.
+            - { name: SRUSTIOPS_BUNDLE_CACHE_DIR, value: /cache/bundles }
+            - { name: SRUSTIOPS_BUNDLE_CACHE_MEMORY_MB, value: {{ .Values.bundleCache.memoryMB | quote }} }
+            - { name: SRUSTIOPS_BUNDLE_CACHE_DISK_MB, value: {{ .Values.bundleCache.diskMB | quote }} }
+            {{- if .Values.link.egressRelay }}
+            # The tenant's own sign-in leaves through the link's egress relay.
+            - { name: SRUSTIOPS_IDP_PROXY, value: "http://{{ .Release.Name }}-link:3128" }
+            {{- end }}
+            {{- with .Values.airgap.moduleMirror.existingClaim }}
+            - { name: SRUSTIOPS_MODULE_MIRROR, value: /mirror/modules }
+            - { name: SRUSTIOPS_MODULE_MIRROR_KEY, value: {{ required "airgap.moduleMirror.publicKey is required with a module mirror" $.Values.airgap.moduleMirror.publicKey | quote }} }
+            {{- end }}
+            {{- with .Values.registryURL }}
+            - { name: SRUSTIOPS_REGISTRY_URL, value: {{ . | quote }} }
+            {{- end }}
+            {{- with .Values.temporal.address }}
+            - { name: SRUSTIOPS_TEMPORAL_ADDRESS, value: {{ . | quote }} }
+            - { name: SRUSTIOPS_TEMPORAL_NAMESPACE, value: {{ $.Values.temporal.namespace | quote }} }
+            {{- end }}
+          securityContext: {{- include "srustiops.securityContext" . | nindent 12 }}
+          readinessProbe: { httpGet: { path: /healthz, port: https, scheme: HTTPS }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /healthz, port: https, scheme: HTTPS }, periodSeconds: 20 }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: secrets, mountPath: /secrets, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: central-ca, mountPath: /central-ca, readOnly: true }
+            - { name: cache, mountPath: /cache }
+            {{- if include "srustiops.installed" . }}
+            - { name: keys, mountPath: /keys, readOnly: true }
+            {{- end }}
+            {{- if and (eq .Values.connectivity "tunnel") .Values.link.serverCASecret }}
+            - { name: gateway-ca, mountPath: /gateway-ca, readOnly: true }
+            {{- end }}
+            {{- if eq .Values.masterKey.source "csi" }}
+            - { name: kms, mountPath: /kms, readOnly: true }
+            {{- end }}
+            {{- if .Values.airgap.moduleMirror.existingClaim }}
+            - { name: module-mirror, mountPath: /mirror/modules, readOnly: true }
+            {{- end }}
+      volumes:
+        - name: cache
+          emptyDir: { sizeLimit: {{ .Values.bundleCache.volumeSize }} }
+        - name: secrets
+          secret: { secretName: {{ .Values.existingSecret }}, defaultMode: 0440 }
+        - name: tls
+          secret: { secretName: {{ include "srustiops.tlsSecret" . }}, defaultMode: 0440 }
+        - name: central-ca
+          secret: { secretName: {{ include "srustiops.centralCASecret" . }}, defaultMode: 0444 }
+        {{- if include "srustiops.installed" . }}
+        - name: keys
+          secret: { secretName: {{ .Release.Name }}-keys, defaultMode: 0440 }
+        {{- end }}
+        {{- if and (eq .Values.connectivity "tunnel") .Values.link.serverCASecret }}
+        - name: gateway-ca
+          secret: { secretName: {{ .Values.link.serverCASecret }}, defaultMode: 0444 }
+        {{- end }}
+        {{- if eq .Values.masterKey.source "csi" }}
+        # The master key from AWS Secrets Manager, GCP Secret Manager or Azure Key Vault.
+        - name: kms
+          csi:
+            driver: secrets-store.csi.k8s.io
+            readOnly: true
+            volumeAttributes: { secretProviderClass: {{ required "masterKey.secretProviderClass is required with masterKey.source=csi" .Values.masterKey.secretProviderClass | quote }} }
+        {{- end }}
+        {{- with .Values.airgap.moduleMirror.existingClaim }}
+        - name: module-mirror
+          persistentVolumeClaim: { claimName: {{ . }}, readOnly: true }
+        {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tenant.name" . }}
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+spec:
+  selector: { app.kubernetes.io/name: srustiops-tenant, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports: [{ name: https, port: 443, targetPort: https }]
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "tenant.name" . }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: srustiops-tenant, app.kubernetes.io/instance: {{ .Release.Name }} }

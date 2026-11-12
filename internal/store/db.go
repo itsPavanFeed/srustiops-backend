@@ -6,15 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/audit"
+	"github.com/itsPavanFeed/srustiops-backend/internal/audit"
 )
 
 var (
@@ -28,7 +31,13 @@ func Connect(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg.MaxConns = 20
+	// pool_max_conns in the URL wins; else SRUSTIOPS_DB_MAX_CONNS; else 20.
+	if !strings.Contains(url, "pool_max_conns") {
+		cfg.MaxConns = 20
+		if n, err := strconv.Atoi(os.Getenv("SRUSTIOPS_DB_MAX_CONNS")); err == nil && n >= 4 && n <= 1000 {
+			cfg.MaxConns = int32(n)
+		}
+	}
 	db, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -124,13 +133,74 @@ func (b *Base) PutMetaIfAbsent(ctx context.Context, key string, v []byte) ([]byt
 	return b.GetMeta(ctx, key)
 }
 
-// AppendAudit adds an event to the hash chain. A transaction-scoped advisory
-// lock serialises writers so the chain never forks.
+// AppendAudit adds an event to the hash chain and returns once it is
+// committed. Writers are grouped: whoever finds no write in progress takes
+// the chain's lock for everyone waiting, appends up to auditBatch events in
+// one transaction and tells each caller, so a burst of changes costs one
+// lock and one commit instead of one each. A transaction-scoped advisory
+// lock still serialises writers across processes, so the chain never forks.
 func (b *Base) AppendAudit(ctx context.Context, actor, action, target, scope string, payload any) error {
 	p, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
+	e := audit.Event{TS: time.Now(), Actor: actor, Action: action, Target: target, Scope: scope, Payload: p}
+	audit.Normalize(&e)
+	req := &auditReq{e: e, done: make(chan error, 1)}
+	a := b.auditor()
+	a.mu.Lock()
+	a.queue = append(a.queue, req)
+	lead := !a.writing
+	a.writing = true
+	a.mu.Unlock()
+	if lead {
+		b.writeAudits(context.WithoutCancel(ctx), a)
+	}
+	return <-req.done
+}
+
+const auditBatch = 200
+
+type auditReq struct {
+	e    audit.Event
+	done chan error
+}
+
+type auditWriter struct {
+	mu      sync.Mutex
+	queue   []*auditReq
+	writing bool
+}
+
+// auditors holds one writer per database pool (Base is copied by value).
+var auditors sync.Map // *pgxpool.Pool -> *auditWriter
+
+func (b *Base) auditor() *auditWriter {
+	v, _ := auditors.LoadOrStore(b.db, &auditWriter{})
+	return v.(*auditWriter)
+}
+
+// writeAudits drains the queue in batches until it is empty.
+func (b *Base) writeAudits(ctx context.Context, a *auditWriter) {
+	for {
+		a.mu.Lock()
+		n := min(len(a.queue), auditBatch)
+		if n == 0 {
+			a.writing = false
+			a.mu.Unlock()
+			return
+		}
+		batch := a.queue[:n:n]
+		a.queue = a.queue[n:]
+		a.mu.Unlock()
+		err := b.appendBatch(ctx, batch)
+		for _, r := range batch {
+			r.done <- err
+		}
+	}
+}
+
+func (b *Base) appendBatch(ctx context.Context, batch []*auditReq) error {
 	tx, err := b.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -143,12 +213,14 @@ func (b *Base) AppendAudit(ctx context.Context, actor, action, target, scope str
 	if err := tx.QueryRow(ctx, `SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1`).Scan(&prev); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return err
 	}
-	e := audit.Event{TS: time.Now(), Actor: actor, Action: action, Target: target, Scope: scope, Payload: p}
-	audit.Normalize(&e)
-	h := audit.Hash(prev, e)
-	if _, err := tx.Exec(ctx, `INSERT INTO audit_events (ts, actor, action, target, `+b.scopeCol+`, payload, prev_hash, hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		e.TS, actor, action, target, scope, string(e.Payload), prev, h); err != nil {
-		return err
+	for _, r := range batch {
+		e := r.e
+		h := audit.Hash(prev, e)
+		if _, err := tx.Exec(ctx, `INSERT INTO audit_events (ts, actor, action, target, `+b.scopeCol+`, payload, prev_hash, hash) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			e.TS, e.Actor, e.Action, e.Target, e.Scope, string(e.Payload), prev, h); err != nil {
+			return err
+		}
+		prev = h
 	}
 	return tx.Commit(ctx)
 }
@@ -157,7 +229,9 @@ type AuditQuery struct {
 	Before int64
 	Limit  int
 	Filter string
-	Scopes []string // nil = every event; otherwise events in these scopes only
+	Scopes []string  // nil = every event; otherwise events in these scopes only
+	Since  time.Time // zero = no lower bound (inclusive)
+	Until  time.Time // zero = no upper bound (exclusive)
 }
 
 func (b *Base) ListAudit(ctx context.Context, q AuditQuery) ([]audit.Event, error) {
@@ -171,11 +245,35 @@ func (b *Base) ListAudit(ctx context.Context, q AuditQuery) ([]audit.Event, erro
 		args = append(args, "%"+strings.NewReplacer("%", "", "_", "").Replace(q.Filter)+"%")
 		sql += fmt.Sprintf(` AND (action LIKE $%[1]d OR target LIKE $%[1]d OR actor LIKE $%[1]d)`, len(args))
 	}
+	if !q.Since.IsZero() {
+		args = append(args, q.Since)
+		sql += fmt.Sprintf(` AND ts >= $%d`, len(args))
+	}
+	if !q.Until.IsZero() {
+		args = append(args, q.Until)
+		sql += fmt.Sprintf(` AND ts < $%d`, len(args))
+	}
 	rows, err := b.db.Query(ctx, sql+` ORDER BY id DESC LIMIT $2`, args...)
 	if err != nil {
 		return nil, err
 	}
 	return scanAudit(rows)
+}
+
+// AuditAfter returns up to limit events with id > after, oldest first (for exports).
+func (b *Base) AuditAfter(ctx context.Context, after int64, limit int) ([]audit.Event, error) {
+	rows, err := b.db.Query(ctx, `SELECT id, ts, actor, action, target, `+b.scopeCol+`, payload::text, prev_hash, hash FROM audit_events WHERE id > $1 ORDER BY id LIMIT $2`, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanAudit(rows)
+}
+
+// LastAuditID is the newest event's id (0 when empty).
+func (b *Base) LastAuditID(ctx context.Context) int64 {
+	var id int64
+	b.db.QueryRow(ctx, `SELECT COALESCE(max(id), 0) FROM audit_events`).Scan(&id)
+	return id
 }
 
 // VerifyAudit walks the whole chain in pages and returns the first broken id (0 = intact).

@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "central.name" . }}
+  labels: {{- include "central.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels: {{- include "central.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels: {{- include "central.selector" . | nindent 8 }}
+      annotations: {{- toYaml .Values.podAnnotations | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, fsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
+      # The tenant link gateway drains on shutdown: agents move to another
+      # replica and open streams get 60 seconds to finish.
+      terminationGracePeriodSeconds: 90
+      containers:
+        - name: central
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["central"]
+          ports:
+            - { name: https, containerPort: 8443 }
+            {{- if .Values.link.enabled }}
+            - { name: link, containerPort: 8091 }
+            {{- end }}
+            {{- if .Values.metrics.enabled }}
+            - { name: metrics, containerPort: {{ .Values.metrics.port }} }
+            {{- end }}
+          env:
+            - { name: SRUSTIOPS_LISTEN, value: ":8443" }
+            {{- if .Values.metrics.enabled }}
+            - { name: SRUSTIOPS_METRICS_LISTEN, value: ":{{ .Values.metrics.port }}" }
+            {{- end }}
+            - { name: SRUSTIOPS_PUBLIC_URL, value: {{ .Values.publicURL | quote }} }
+            - { name: SRUSTIOPS_DATABASE_URL_FILE, value: /secrets/database-url }
+            - { name: SRUSTIOPS_MASTER_KEY_FILE, value: /secrets/master-key }
+            - { name: SRUSTIOPS_TLS_CERT, value: /tls/server/tls.crt }
+            - { name: SRUSTIOPS_TLS_KEY, value: /tls/server/tls.key }
+            - { name: SRUSTIOPS_CLIENT_CERT, value: /tls/client/tls.crt }
+            - { name: SRUSTIOPS_CLIENT_KEY, value: /tls/client/tls.key }
+            {{- with .Values.trustedProxies }}
+            - { name: SRUSTIOPS_TRUSTED_PROXIES, value: {{ . | quote }} }
+            {{- end }}
+            {{- if .Values.link.enabled }}
+            - { name: POD_IP, valueFrom: { fieldRef: { fieldPath: status.podIP } } }
+            - { name: SRUSTIOPS_LINK_LISTEN, value: ":8091" }
+            - { name: SRUSTIOPS_LINK_PUBLIC_URL, value: {{ .Values.link.publicURL | quote }} }
+            # Other replicas reach this one directly to use the tunnels it holds.
+            - { name: SRUSTIOPS_LINK_ADVERTISE_URL, value: "https://$(POD_IP):8091" }
+            - { name: SRUSTIOPS_LINK_TLS_CERT, value: /tls/link/tls.crt }
+            - { name: SRUSTIOPS_LINK_TLS_KEY, value: /tls/link/tls.key }
+            - { name: SRUSTIOPS_LINK_SERVER_CA, value: /tls/link/ca.crt }
+            {{- end }}
+            {{- with .Values.sso }}
+            {{- if .issuer }}
+            - { name: SRUSTIOPS_OIDC_ISSUER, value: {{ .issuer | quote }} }
+            - { name: SRUSTIOPS_OIDC_CLIENT_ID, value: {{ .clientID | quote }} }
+            - { name: SRUSTIOPS_OIDC_CLIENT_SECRET_FILE, value: /secrets/oidc-client-secret }
+            - { name: SRUSTIOPS_OIDC_ALLOWED_DOMAINS, value: {{ .allowedDomains | quote }} }
+            - { name: SRUSTIOPS_OIDC_LABEL, value: {{ .label | quote }} }
+            {{- if .trustUnverifiedEmail }}
+            - { name: SRUSTIOPS_OIDC_TRUST_UNVERIFIED_EMAIL, value: "1" }
+            {{- end }}
+            {{- end }}
+            {{- end }}
+          securityContext: {{- include "srustiops.securityContext" . | nindent 12 }}
+          readinessProbe: { httpGet: { path: /healthz, port: https, scheme: HTTPS }, periodSeconds: 10 }
+          livenessProbe: { httpGet: { path: /healthz, port: https, scheme: HTTPS }, periodSeconds: 20 }
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: secrets, mountPath: /secrets, readOnly: true }
+            - { name: server-tls, mountPath: /tls/server, readOnly: true }
+            - { name: client-tls, mountPath: /tls/client, readOnly: true }
+            {{- if .Values.link.enabled }}
+            - { name: link-tls, mountPath: /tls/link, readOnly: true }
+            {{- end }}
+      volumes:
+        - name: secrets
+          secret: { secretName: {{ .Values.existingSecret }}, defaultMode: 0400 }
+        - name: server-tls
+          secret: { secretName: {{ .Values.tls.secretName }}, defaultMode: 0400 }
+        - name: client-tls
+          secret: { secretName: {{ .Values.tls.clientSecretName }}, defaultMode: 0400 }
+        {{- if .Values.link.enabled }}
+        - name: link-tls
+          secret: { secretName: {{ .Values.link.tlsSecretName }}, defaultMode: 0400 }
+        {{- end }}
+      nodeSelector: {{- toYaml .Values.nodeSelector | nindent 8 }}
+      tolerations: {{- toYaml .Values.tolerations | nindent 8 }}
+      affinity: {{- toYaml .Values.affinity | nindent 8 }}

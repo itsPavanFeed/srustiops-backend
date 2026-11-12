@@ -17,15 +17,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/httpx"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/identity"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/secure"
+	"github.com/itsPavanFeed/srustiops-backend/internal/httpx"
+	"github.com/itsPavanFeed/srustiops-backend/internal/identity"
+	"github.com/itsPavanFeed/srustiops-backend/internal/secure"
 )
 
 // Slack interactivity: the Approve / Reject buttons in Slack notifications
 // post to POST /webhooks/slack/{tenant}. Central verifies Slack's signature with
 // the tenant's Slack app signing secret, resolves the clicking user's email
-// with the app's bot token, and acts on the tenant plane as that Cloud Pravaha
+// with the app's bot token, and acts on the tenant plane as that SrustiOps
 // user — the same approval call the console makes, with the same role checks,
 // separation of duties and audit trail. Unknown people are refused.
 
@@ -35,7 +35,7 @@ const (
 )
 
 func slackAPI() string {
-	if v := os.Getenv("PRAVAHA_SLACK_API_URL"); v != "" { // tests
+	if v := os.Getenv("SRUSTIOPS_SLACK_API_URL"); v != "" { // tests
 		return strings.TrimRight(v, "/")
 	}
 	return "https://slack.com/api"
@@ -188,7 +188,7 @@ func (s *Server) slackInteraction(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// slackAct performs a button action as the Cloud Pravaha user behind the Slack
+// slackAct performs a button action as the SrustiOps user behind the Slack
 // account and returns the message to show in Slack.
 func (s *Server) slackAct(ctx context.Context, t *Tenant, token, slackUser, actionID, value string) string {
 	var v struct {
@@ -205,25 +205,27 @@ func (s *Server) slackAct(ctx context.Context, t *Tenant, token, slackUser, acti
 	}
 	u, err := s.store.UserByEmail(ctx, email)
 	if err != nil || u.DisabledAt != nil {
-		s.audit(ctx, "slack:"+email, "slack.denied", "tenant/"+t.Slug, t.Slug, map[string]string{"reason": "no such Cloud Pravaha user"})
-		return ":x: " + email + " is not a Cloud Pravaha user."
+		s.audit(ctx, "slack:"+email, "slack.denied", "tenant/"+t.Slug, t.Slug, map[string]string{"reason": "no such SrustiOps user"})
+		return ":x: " + email + " is not a SrustiOps user."
 	}
-	pr, err := s.store.Principal(ctx, u, t.Slug)
+	// Identity only for tenants that decide their own access: the tenant
+	// resolves the person's roles itself (a Slack session carries idp "slack").
+	pr, err := s.assertionPrincipal(ctx, u, &AuthSession{IDP: "slack"}, t)
 	if err != nil || pr == nil {
 		return ":x: " + email + " has no access to this tenant."
 	}
 	var path string
 	var body any
 	switch {
-	case strings.HasPrefix(actionID, "pravaha_approve_"):
+	case strings.HasPrefix(actionID, "srustiops_approve_"):
 		path, body = "/api/v1/runs/"+url.PathEscape(v.Run)+"/approve", map[string]string{"step": v.Step, "reason": "approved in Slack"}
-	case actionID == "pravaha_reject":
+	case actionID == "srustiops_reject":
 		path, body = "/api/v1/runs/"+url.PathEscape(v.Run)+"/discard", map[string]string{"reason": "rejected in Slack"}
 	default:
 		return ":x: Unknown action."
 	}
 	code, out, err := s.callTenantAs(ctx, t, pr, http.MethodPost, path, body)
-	s.audit(ctx, u.Email, "slack."+strings.TrimPrefix(actionID, "pravaha_"), "run/"+v.Run, t.Slug, map[string]any{"step": v.Step, "status": code})
+	s.audit(ctx, u.Email, "slack."+strings.TrimPrefix(actionID, "srustiops_"), "run/"+v.Run, t.Slug, map[string]any{"step": v.Step, "status": code})
 	switch {
 	case err != nil:
 		return ":x: The tenant plane is unreachable: " + err.Error()
@@ -233,7 +235,7 @@ func (s *Server) slackAct(ctx context.Context, t *Tenant, token, slackUser, acti
 		}
 		json.Unmarshal(out, &e)
 		return fmt.Sprintf(":x: %s could not do that: %s", email, e.Error)
-	case actionID == "pravaha_reject":
+	case actionID == "srustiops_reject":
 		return fmt.Sprintf(":no_entry: Rejected by %s. The plan was discarded; nothing is applied.", email)
 	default:
 		return fmt.Sprintf(":white_check_mark: %s approved as %s.", email, v.Step)
@@ -243,7 +245,8 @@ func (s *Server) slackAct(ctx context.Context, t *Tenant, token, slackUser, acti
 // callTenantAs calls the tenant plane's API as a user, exactly like the wrapper.
 func (s *Server) callTenantAs(ctx context.Context, t *Tenant, p *identity.Principal, method, path string, body any) (int, []byte, error) {
 	b, _ := json.Marshal(body)
-	assertion, err := identity.SignAssertion(s.issuer, p, method, path, time.Now())
+	// The assertion is bound to the path alone, as the tenant checks it.
+	assertion, err := identity.SignAssertion(s.issuer, p, method, strings.SplitN(path, "?", 2)[0], time.Now())
 	if err != nil {
 		return 0, nil, err
 	}
@@ -254,12 +257,22 @@ func (s *Server) callTenantAs(ctx context.Context, t *Tenant, p *identity.Princi
 	req, _ := http.NewRequestWithContext(ctx, method, t.BackendURL+path, bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(assertionHeader, assertion)
+	httpx.SetTrace(ctx, req) // one trace ID from central into the workspace
 	resp, err := (&http.Client{Transport: rt, Timeout: 20 * time.Second}).Do(req)
 	if err != nil {
 		return 0, nil, err
 	}
 	defer resp.Body.Close()
-	out, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	// Large enough for a tenant's module catalog; a longer answer is an
+	// error, not a silently truncated body.
+	const limit = 8 << 20
+	out, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return 0, nil, err
+	}
+	if len(out) > limit {
+		return 0, nil, fmt.Errorf("%s %s: the tenant's answer is larger than %d MiB", method, path, limit>>20)
+	}
 	return resp.StatusCode, out, nil
 }
 

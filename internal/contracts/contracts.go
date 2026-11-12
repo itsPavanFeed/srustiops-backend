@@ -25,6 +25,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/itsPavanFeed/srustiops-backend/internal/forge"
 )
 
 const (
@@ -35,11 +37,11 @@ const (
 
 // Config is a tenant's contracts repository. The token is stored separately, sealed.
 type Config struct {
-	Provider string `json:"provider"`          // github | gitlab | local
-	Repo     string `json:"repo"`              // owner/name (GitHub), group/project (GitLab), directory (local)
+	Provider string `json:"provider"`          // github | gitlab | bitbucket | azure | local
+	Repo     string `json:"repo"`              // owner/name (GitHub), group/project (GitLab), workspace/repo (Bitbucket), org/project/repo (Azure DevOps), directory (local)
 	Branch   string `json:"branch"`            // e.g. main
 	Path     string `json:"path"`              // folder holding contracts, e.g. stacks
-	APIURL   string `json:"api_url,omitempty"` // GitHub Enterprise / self-hosted GitLab API base
+	APIURL   string `json:"api_url,omitempty"` // GitHub Enterprise / self-hosted GitLab / Azure DevOps Server API base
 	Auth     string `json:"auth,omitempty"`    // token (default) | github_app
 	// Layout of the folder: "flat" (<path>/<stack>/<resource>.yaml, the
 	// environment and BU in metadata) or "nested"
@@ -62,9 +64,14 @@ var (
 func (c *Config) Validate(allowLocal bool) error {
 	var errs []error
 	switch c.Provider {
-	case "github", "gitlab":
-		if !repoRe.MatchString(c.Repo) {
+	case "github", "gitlab", "bitbucket", "azure":
+		switch {
+		case !repoRe.MatchString(c.Repo):
 			errs = append(errs, errors.New("repo must look like owner/name"))
+		case c.Provider == "bitbucket" && strings.Count(c.Repo, "/") != 1:
+			errs = append(errs, errors.New("a Bitbucket repo is workspace/repository"))
+		case c.Provider == "azure" && strings.Count(c.Repo, "/") != 2:
+			errs = append(errs, errors.New("an Azure DevOps repo is organization/project/repository"))
 		}
 		if c.APIURL != "" {
 			if u, err := url.Parse(c.APIURL); err != nil || u.Host == "" || !(u.Scheme == "https" || u.Scheme == "http" && isLoopback(u.Hostname())) {
@@ -73,12 +80,12 @@ func (c *Config) Validate(allowLocal bool) error {
 		}
 	case "local":
 		if !allowLocal {
-			errs = append(errs, errors.New(`the "local" provider is for development only (PRAVAHA_ALLOW_LOCAL_CONTRACTS=1)`))
+			errs = append(errs, errors.New(`the "local" provider is for development only (SRUSTIOPS_ALLOW_LOCAL_CONTRACTS=1)`))
 		} else if !filepath.IsAbs(c.Repo) {
 			errs = append(errs, errors.New("local repo must be an absolute directory"))
 		}
 	default:
-		errs = append(errs, errors.New(`provider must be "github" or "gitlab"`))
+		errs = append(errs, errors.New(`provider must be "github", "gitlab", "bitbucket" or "azure"`))
 	}
 	switch c.Layout {
 	case "", "flat", "nested":
@@ -130,10 +137,42 @@ func New(c Config, token string, hc *http.Client) (Source, error) {
 			api = "https://gitlab.com/api/v4"
 		}
 		return &gitlab{api: strings.TrimRight(api, "/"), repo: c.Repo, branch: c.Branch, token: token, hc: hc}, nil
+	case "bitbucket", "azure":
+		return forgeSource{f: Forge(c, token, hc), branch: c.Branch}, nil
 	case "local":
 		return &local{dir: c.Repo}, nil
 	}
 	return nil, fmt.Errorf("unknown provider %q", c.Provider)
+}
+
+// Forge is the pull-request client for a GitLab, Bitbucket or Azure DevOps
+// repository (GitHub goes through the GitHub App instead).
+func Forge(c Config, token string, hc *http.Client) forge.Forge {
+	switch c.Provider {
+	case "bitbucket":
+		return forge.NewBitbucket(c.APIURL, c.Repo, token, hc)
+	case "azure":
+		return forge.NewAzure(c.APIURL, c.Repo, token, hc)
+	}
+	return forge.NewGitLab(c.APIURL, c.Repo, token, hc)
+}
+
+// forgeSource reads contracts through a forge client.
+type forgeSource struct {
+	f      forge.Forge
+	branch string
+}
+
+func (s forgeSource) Revision(ctx context.Context) (string, error) {
+	sha, err := s.f.BranchSHA(ctx, s.branch)
+	if err != nil {
+		return "", err
+	}
+	return checkSHA(sha)
+}
+
+func (s forgeSource) Files(ctx context.Context, rev string) (map[string][]byte, error) {
+	return s.f.Files(ctx, rev)
 }
 
 // ---- GitHub ----

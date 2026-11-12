@@ -12,11 +12,11 @@ func TestRedacts(t *testing.T) {
 		"AKIAABCDEFGHIJKLMNOP",
 		`password = "hunter2hunter2"`,
 		"eyJhbGciOiJFUzI1NiJ9.eyJzdWIiOiJwcmF2YWhhIn0.c2lnbmF0dXJlc2lnbmF0dXJl",
-		"pvh_t_abcdefghijklmnopqrstuvwxyz0123",
+		"sop_t_abcdefghijklmnopqrstuvwxyz0123",
 		"-----BEGIN PRIVATE KEY-----\nMIIB\n-----END PRIVATE KEY-----",
 	}, "\n")
 	out := r.String(in)
-	for _, leak := range []string{"super-secret-run-token", "AKIAABCDEFGHIJKLMNOP", "hunter2", "eyJhbGci", "pvh_t_abc", "MIIB"} {
+	for _, leak := range []string{"super-secret-run-token", "AKIAABCDEFGHIJKLMNOP", "hunter2", "eyJhbGci", "sop_t_abc", "MIIB"} {
 		if strings.Contains(out, leak) {
 			t.Errorf("leaked %q in:\n%s", leak, out)
 		}

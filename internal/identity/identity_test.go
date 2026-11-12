@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/oidc"
+	"github.com/itsPavanFeed/srustiops-backend/internal/oidc"
 )
 
 func setup(t *testing.T) (*oidc.Issuer, *AssertionVerifier) {
@@ -99,5 +99,20 @@ func TestPlatformAdmin(t *testing.T) {
 	p.TenantRoles = []string{FinOps}
 	if !p.CanApprove(StepFinOps, "any") {
 		t.Error("an explicit finops membership lets a platform admin sign finops")
+	}
+}
+
+func TestPlatformAdminManagesButNeverApproves(t *testing.T) {
+	p := &Principal{Subject: "root@platform.local", PlatformAdmin: true}
+	if !p.ManagesTenant() || p.FullControl() {
+		t.Fatalf("platform admin: manages=%v full=%v", p.ManagesTenant(), p.FullControl())
+	}
+	for _, step := range Steps {
+		if p.CanApprove(step, "payments") {
+			t.Fatalf("platform admin signs %s", step)
+		}
+	}
+	if (&Principal{TenantRoles: []string{DevOps}}).ManagesTenant() != true {
+		t.Fatal("devops manages the tenant")
 	}
 }

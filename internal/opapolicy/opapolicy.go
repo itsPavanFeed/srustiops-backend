@@ -1,6 +1,6 @@
 // Package opapolicy evaluates tenant-defined Rego policy sets against plans.
 //
-// A policy set is a Rego module in package pravaha.policy. Each element of its
+// A policy set is a Rego module in package srustiops.policy. Each element of its
 // deny set is a violation: a string, or an object {"msg": ..., "address": ...}.
 // Policy sets fail closed: a set that does not compile, errors or times out
 // produces a hard violation rather than passing the plan.
@@ -15,12 +15,12 @@ import (
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/rego"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/policy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/policy"
 )
 
 const (
-	Package = "pravaha.policy"
-	query   = "data.pravaha.policy.deny"
+	Package = "srustiops.policy"
+	query   = "data.srustiops.policy.deny"
 	timeout = 2 * time.Second
 	maxSize = 64 << 10
 )

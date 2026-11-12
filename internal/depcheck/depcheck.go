@@ -5,8 +5,9 @@
 // what was actually downloaded:
 //
 //   - every module came from registry.opentofu.org at an approved version, is a
-//     local subdirectory inside an approved module package, or is vendored from
-//     the deployed module release (vendor/, verified by checksum before init);
+//     local subdirectory inside an approved module package, is vendored from
+//     the deployed module release (vendor/, verified by checksum before init),
+//     or is a first-party module identical to the runner's own catalog copy;
 //   - every provider in the dependency lock file is allowlisted at its pinned version;
 //   - no loaded module contains provisioners or the external data source, which
 //     would run arbitrary commands on the runner.
@@ -21,7 +22,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
 )
 
 var (
@@ -95,6 +96,13 @@ func Check(workdir string, cat *catalog.Catalog) error {
 				continue
 			}
 			packages[m.Key] = pkg
+		case strings.HasPrefix(m.Source, "./.srustiops/modules/") && within(dir, filepath.Join(root, ".srustiops", "modules")):
+			// A first-party module shipped with the job: it must be exactly the
+			// code of a first-party module version in this runner's catalog.
+			if err := checkFirstParty(dir, cat); err != nil {
+				add("module %s: %v", m.Key, err)
+				continue
+			}
 		case (strings.HasPrefix(m.Source, "./") || strings.HasPrefix(m.Source, "../")) && within(dir, filepath.Join(root, "vendor")):
 			// Vendored from the module release: built, rewritten and checked at
 			// release time, and verified by checksum when extracted.
@@ -204,7 +212,9 @@ func resolveInside(root, rel string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !within(p, filepath.Join(root, ".terraform", "modules")) && !within(p, filepath.Join(root, "vendor")) {
+	// The module cache, the vendored release, or first-party modules shipped
+	// with the job (those are checked against the catalog byte for byte).
+	if !within(p, filepath.Join(root, ".terraform", "modules")) && !within(p, filepath.Join(root, "vendor")) && !within(p, filepath.Join(root, ".srustiops", "modules")) {
 		return "", fmt.Errorf("directory %q is outside the module cache", rel)
 	}
 	return p, nil
@@ -213,4 +223,36 @@ func resolveInside(root, rel string) (string, error) {
 func within(path, dir string) bool {
 	rel, err := filepath.Rel(dir, path)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, "../") && !filepath.IsAbs(rel)
+}
+
+// checkFirstParty compares a first-party module folder in the run with the
+// catalog's code for it: the same files, byte for byte.
+func checkFirstParty(dir string, cat *catalog.Catalog) error {
+	name := filepath.Base(dir)
+	for key, files := range cat.FirstParty {
+		src, ver, _ := strings.Cut(key, "@")
+		if catalog.FirstPartyDir(src, ver) != name {
+			continue
+		}
+		got := map[string][]byte{}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				return fmt.Errorf("first-party module %s contains a folder %s", name, e.Name())
+			}
+			b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				return err
+			}
+			got[e.Name()] = b
+		}
+		if catalog.FirstPartySum(got) != catalog.FirstPartySum(files) {
+			return fmt.Errorf("first-party module %s differs from the approved code in the catalog", name)
+		}
+		return nil
+	}
+	return fmt.Errorf("first-party module %s is not in this runner's catalog", name)
 }

@@ -14,23 +14,23 @@ jobs:
       - run: go mod verify
       - run: go vet ./...
       - run: go test -race ./...
-      - run: go build -trimpath -o bin/pravaha ./cmd/pravaha
+      - run: go build -trimpath -o bin/srustiops ./cmd/srustiops
       - run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
-      - name: terraform-provider-pravaha
-        working-directory: terraform-provider-pravaha
-        run: go mod verify && go vet ./... && go test ./... && go build -trimpath -o ../bin/terraform-provider-pravaha .
+      - name: terraform-provider-srustiops
+        working-directory: terraform-provider-srustiops
+        run: go mod verify && go vet ./... && go test ./... && go build -trimpath -o ../bin/terraform-provider-srustiops .
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-        with: { repository: itsPavanFeed/cloud-pravaha-backend, path: cloud-pravaha-backend }
+        with: { repository: itsPavanFeed/srustiops-backend, path: srustiops-backend }
       - uses: actions/checkout@v4
-        with: { repository: itsPavanFeed/cloud-pravaha-modules, path: cloud-pravaha-modules }
+        with: { repository: itsPavanFeed/srustiops-modules, path: srustiops-modules }
       - uses: actions/checkout@v4
-        with: { repository: itsPavanFeed/cloud-pravaha-test-resources, path: cloud-pravaha-test-resources }
+        with: { repository: itsPavanFeed/srustiops-test-resources, path: srustiops-test-resources }
       - uses: actions/setup-go@v5
-        with: { go-version-file: cloud-pravaha-backend/go.mod, cache-dependency-path: cloud-pravaha-backend/go.sum }
+        with: { go-version-file: srustiops-backend/go.mod, cache-dependency-path: srustiops-backend/go.sum }
       - uses: opentofu/setup-opentofu@v1
         with: { tofu_version: 1.13.2, tofu_wrapper: false }
-      - run: ./cloud-pravaha-test-resources/e2e/run.sh
+      - run: ./srustiops-test-resources/e2e/run.sh

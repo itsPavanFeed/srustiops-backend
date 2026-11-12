@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/cost"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/identity"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/opapolicy"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/policy"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/store"
+	"github.com/itsPavanFeed/srustiops-backend/internal/cost"
+	"github.com/itsPavanFeed/srustiops-backend/internal/identity"
+	"github.com/itsPavanFeed/srustiops-backend/internal/opapolicy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/policy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/store"
 )
 
 var (
@@ -154,7 +154,7 @@ func (s *Server) testPolicy(w http.ResponseWriter, r *http.Request) {
 		var sum policy.Summary
 		json.Unmarshal(run.PlanSummary, &sum)
 		env, _ := s.store.EntityEnvironment(r.Context(), run.Entity, run.Environment)
-		input = s.policyInput(run, env, sum)
+		input = s.policyInput(r.Context(), run, env, sum)
 	}
 	writeJSON(w, 200, opapolicy.Evaluate(r.Context(), []opapolicy.Set{{Name: "test", Level: "hard", Module: b.Module}}, input))
 }
@@ -172,15 +172,16 @@ func (s *Server) visibleRunByID(w http.ResponseWriter, r *http.Request, id strin
 }
 
 // policyInput is the document policies see.
-func (s *Server) policyInput(run *store.Run, env *store.Environment, sum policy.Summary) map[string]any {
+func (s *Server) policyInput(ctx context.Context, run *store.Run, env *store.Environment, sum policy.Summary) map[string]any {
 	var in map[string]any
 	b, _ := json.Marshal(map[string]any{
 		"run": map[string]any{
 			"id": run.ID, "operation": run.Operation, "stack": run.StackName, "bu": run.BU, "entity": run.Entity,
-			"environment": run.Environment, "tier": envTier(env), "created_by": run.CreatedBy,
+			"environment": run.Environment, "tier": envTier(env), "created_by": run.CreatedBy, "region": cloudRegion(env),
 		},
 		"summary": sum,
 		"cost":    cost.Of(sum),
+		"budget":  s.budgetInput(ctx, run.BU), // null when the BU has no budget
 	})
 	json.Unmarshal(b, &in)
 	return in
@@ -198,7 +199,7 @@ func (s *Server) tenantPolicies(ctx context.Context, run *store.Run) []opapolicy
 	all, err := s.store.ListPolicySets(ctx)
 	if err != nil {
 		s.log.Error("loading policy sets", "err", err)
-		return []opapolicy.Set{{Name: "unavailable", Level: "hard", Module: "package pravaha.policy\ndeny contains \"policy sets could not be loaded\" if true"}}
+		return []opapolicy.Set{{Name: "unavailable", Level: "hard", Module: "package srustiops.policy\ndeny contains \"policy sets could not be loaded\" if true"}}
 	}
 	var out []opapolicy.Set
 	for _, p := range all {

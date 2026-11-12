@@ -7,7 +7,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 	"github.com/hashicorp/hcl/v2/hclwrite"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -123,7 +123,7 @@ func TestEnforcedBaselineAndReferences(t *testing.T) {
 	st := mustDecode(t, `{"modules":[
 		{"name":"vpc","module":"aws-vpc","inputs":{"name":"main"}},
 		{"name":"sg","module":"aws-sg","inputs":{"vpc_id":{"$ref":"vpc.vpc_id"}}}]}`)
-	cloud := &Cloud{Provider: "aws", Auth: "oidc", AWS: &AWSCloud{Region: "eu-west-1", RoleARN: "arn:aws:iam::123456789012:role/pravaha"}}
+	cloud := &Cloud{Provider: "aws", Auth: "oidc", AWS: &AWSCloud{Region: "eu-west-1", RoleARN: "arn:aws:iam::123456789012:role/srustiops"}}
 	gen, err := st.Generate(cat, GenerateInput{StackName: "net", Environment: "prod", Cloud: cloud, TofuVersion: "1.13.2"})
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +139,7 @@ func TestEnforcedBaselineAndReferences(t *testing.T) {
 		t.Errorf("metadata fallback not disabled\n%s", s)
 	}
 	tags := literal(t, block(t, gen.Files[ConfigFile], "provider aws", "default_tags")["tags"])
-	if tags.GetAttr("managed-by").AsString() != "cloud-pravaha" {
+	if tags.GetAttr("managed-by").AsString() != "srustiops" {
 		t.Errorf("default tags missing\n%s", s)
 	}
 	for _, bad := range []string{"access_key", "secret_key", "profile", "arn:aws:iam"} {
@@ -209,7 +209,7 @@ func TestCloudRejectsSecrets(t *testing.T) {
 			t.Errorf("expected rejection: %s", b)
 		}
 	}
-	good := `{"provider":"gcp","auth":"oidc","gcp":{"project_id":"my-proj-1","region":"europe-west1","service_account_email":"deployer@my-proj-1.iam.gserviceaccount.com","workload_identity_provider":"projects/123/locations/global/workloadIdentityPools/pravaha/providers/pravaha"}}`
+	good := `{"provider":"gcp","auth":"oidc","gcp":{"project_id":"my-proj-1","region":"europe-west1","service_account_email":"deployer@my-proj-1.iam.gserviceaccount.com","workload_identity_provider":"projects/123/locations/global/workloadIdentityPools/srustiops/providers/srustiops"}}`
 	if _, err := DecodeCloud([]byte(good)); err != nil {
 		t.Fatal(err)
 	}
@@ -246,7 +246,7 @@ func TestPhaseCredentials(t *testing.T) {
 			t.Errorf("%s is not on the runner allowlist", k)
 		}
 	}
-	g, _ := DecodeCloud([]byte(`{"provider":"gcp","auth":"oidc","gcp":{"project_id":"my-proj-1","region":"europe-west1","service_account_email":"deployer@my-proj-1.iam.gserviceaccount.com","plan_service_account_email":"reader@my-proj-1.iam.gserviceaccount.com","workload_identity_provider":"projects/123/locations/global/workloadIdentityPools/pravaha/providers/pravaha"}}`))
+	g, _ := DecodeCloud([]byte(`{"provider":"gcp","auth":"oidc","gcp":{"project_id":"my-proj-1","region":"europe-west1","service_account_email":"deployer@my-proj-1.iam.gserviceaccount.com","plan_service_account_email":"reader@my-proj-1.iam.gserviceaccount.com","workload_identity_provider":"projects/123/locations/global/workloadIdentityPools/srustiops/providers/srustiops"}}`))
 	_, pf := g.PhaseCredentials("net", "plan")
 	_, af := g.PhaseCredentials("net", "apply")
 	if !strings.Contains(string(pf[GCPExternalFile]), "reader@") || !strings.Contains(string(af[GCPExternalFile]), "deployer@") {
@@ -324,7 +324,7 @@ func TestInputIntoEnforcedObject(t *testing.T) {
 
 func TestOrganisationLabels(t *testing.T) {
 	l := Labels(GenerateInput{Tenant: "acme", Entity: "Retail Co", BU: "payments", Environment: "payments-prod", StackName: "api"})
-	want := map[string]string{"managed-by": "cloud-pravaha", "pravaha-tenant": "acme", "pravaha-entity": "retail-co", "pravaha-bu": "payments", "pravaha-environment": "payments-prod", "pravaha-stack": "api"}
+	want := map[string]string{"managed-by": "srustiops", "srustiops-tenant": "acme", "srustiops-entity": "retail-co", "srustiops-bu": "payments", "srustiops-environment": "payments-prod", "srustiops-stack": "api"}
 	for k, v := range want {
 		if l[k] != v {
 			t.Fatalf("%s = %q, want %q (all: %v)", k, l[k], v, l)
@@ -337,14 +337,14 @@ func TestOrganisationLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	st := mustDecode(t, `{"modules":[{"name":"x","module":"azure-thing","inputs":{"name":"n","tags":{"team":"pay","pravaha-bu":"spoofed"}}}]}`)
+	st := mustDecode(t, `{"modules":[{"name":"x","module":"azure-thing","inputs":{"name":"n","tags":{"team":"pay","srustiops-bu":"spoofed"}}}]}`)
 	gen, err := st.Generate(c, GenerateInput{StackName: "api", Environment: "payments-prod", Tenant: "acme", Entity: "retail", BU: "payments",
 		Cloud: &Cloud{Provider: "azure", Auth: "oidc", Azure: &AzureCloud{TenantID: "00000000-0000-0000-0000-000000000001", SubscriptionID: "00000000-0000-0000-0000-000000000002", ClientID: "00000000-0000-0000-0000-000000000003"}}, TofuVersion: "1.13.2"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tags := literal(t, block(t, gen.Files[ConfigFile], "module x")["tags"])
-	if tags.GetAttr("team").AsString() != "pay" || tags.GetAttr("pravaha-bu").AsString() != "payments" || tags.GetAttr("pravaha-entity").AsString() != "retail" {
+	if tags.GetAttr("team").AsString() != "pay" || tags.GetAttr("srustiops-bu").AsString() != "payments" || tags.GetAttr("srustiops-entity").AsString() != "retail" {
 		t.Fatalf("azure tags = %v (user tags kept, platform labels win)", tags)
 	}
 }

@@ -1,0 +1,77 @@
+{{- if .Values.runner.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Release.Name }}-runner
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+  annotations: {{- toYaml .Values.runner.serviceAccountAnnotations | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-runner
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/name: srustiops-runner
+spec:
+  {{- if not .Values.runner.autoscaling.enabled }}
+  replicas: {{ .Values.runner.replicas }}
+  {{- end }}
+  selector:
+    matchLabels: { app.kubernetes.io/name: srustiops-runner, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: srustiops-runner
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- with .Values.runner.podLabels }}{{ toYaml . | nindent 8 }}{{ end }}
+    spec:
+      serviceAccountName: {{ .Release.Name }}-runner
+      securityContext: { runAsNonRoot: true, fsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
+      {{- with .Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: runner
+          image: "{{ .Values.image.runner }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["runner"]
+          {{- if .Values.metrics.enabled }}
+          ports: [{ name: metrics, containerPort: {{ .Values.metrics.port }} }]
+          {{- end }}
+          env:
+            - { name: SRUSTIOPS_SERVER_URL, value: "https://{{ include "tenant.name" . }}" }
+            {{- if .Values.metrics.enabled }}
+            - { name: SRUSTIOPS_METRICS_LISTEN, value: ":{{ .Values.metrics.port }}" }
+            {{- end }}
+            - { name: SRUSTIOPS_RUNNER_TOKEN_FILE, value: /secrets/runner-token }
+            - { name: SRUSTIOPS_STATE_KEY_FILE, value: /secrets/state-key }
+            - { name: SRUSTIOPS_RUNNER_CONCURRENCY, value: {{ .Values.runner.concurrency | quote }} }
+            - { name: SRUSTIOPS_CA_FILE, value: /tls/ca.crt }
+            - { name: SRUSTIOPS_RUNNER_NAME, valueFrom: { fieldRef: { fieldPath: metadata.name } } }
+            - { name: SRUSTIOPS_BUNDLE_CACHE_DIR, value: /tmp/bundles } # module release bundles, kept between runs
+            - { name: SRUSTIOPS_BUNDLE_CACHE_DISK_MB, value: {{ .Values.runner.bundleCacheMB | quote }} }
+            {{- if .Values.airgap.providerMirror.existingClaim }}
+            - { name: SRUSTIOPS_PROVIDER_MIRROR, value: /mirror/providers } # providers install only from here
+            {{- end }}
+          securityContext: {{- include "srustiops.securityContext" . | nindent 12 }}
+          resources: {{- toYaml .Values.runner.resources | nindent 12 }}
+          volumeMounts:
+            - { name: secrets, mountPath: /secrets, readOnly: true }
+            - { name: tls, mountPath: /tls, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+            {{- if .Values.airgap.providerMirror.existingClaim }}
+            - { name: provider-mirror, mountPath: /mirror/providers, readOnly: true }
+            {{- end }}
+      volumes:
+        - name: secrets
+          secret: { secretName: {{ if include "srustiops.installed" . }}{{ .Release.Name }}-keys{{ else }}{{ .Values.runner.existingSecret }}{{ end }}, defaultMode: 0440 }
+        - name: tls
+          secret: { secretName: {{ include "srustiops.tlsSecret" . }}, items: [{ key: ca.crt, path: ca.crt }] }
+        # Per-run working directories; providers execute from here.
+        - name: tmp
+          emptyDir: { sizeLimit: {{ .Values.runner.tmpSize }} }
+        {{- with .Values.airgap.providerMirror.existingClaim }}
+        - name: provider-mirror
+          persistentVolumeClaim: { claimName: {{ . }}, readOnly: true }
+        {{- end }}
+{{- end }}

@@ -28,10 +28,18 @@ func (s *Server) noteDirectory(ctx context.Context, m map[string]string) {
 	if m == nil {
 		return
 	}
-	if cur := s.dirSnap.Load(); cur != nil && maps.Equal(*cur, m) {
+	cur := s.dirSnap.Load()
+	if cur != nil && maps.Equal(*cur, m) {
 		return
 	}
 	cp := maps.Clone(m)
+	if cur != nil && s.access().Source == "tenant" {
+		// Under tenant-controlled access a business unit never moves entity.
+		cp = pinDirectory(*cur, m)
+		if maps.Equal(*cur, cp) {
+			return
+		}
+	}
 	s.dirSnap.Store(&cp)
 	go func() {
 		if err := s.store.PutSetting(context.WithoutCancel(ctx), directorySetting, directory{BUEntity: cp}, "system:directory"); err != nil {

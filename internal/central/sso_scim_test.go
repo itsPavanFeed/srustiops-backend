@@ -28,10 +28,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/config"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/identity"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/oidc"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/secure"
+	"github.com/itsPavanFeed/srustiops-backend/internal/config"
+	"github.com/itsPavanFeed/srustiops-backend/internal/identity"
+	"github.com/itsPavanFeed/srustiops-backend/internal/oidc"
+	"github.com/itsPavanFeed/srustiops-backend/internal/secure"
 )
 
 // fakeIdP is a minimal OIDC provider: discovery, RS256 JWKS, and a token
@@ -63,7 +63,7 @@ func newIdP(t *testing.T) *fakeIdP {
 		delete(f.codes, r.Form.Get("code"))
 		f.mu.Unlock()
 		sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
-		if c == nil || base64.RawURLEncoding.EncodeToString(sum[:]) != c["challenge"] || r.Form.Get("client_id") != "pravaha" {
+		if c == nil || base64.RawURLEncoding.EncodeToString(sum[:]) != c["challenge"] || r.Form.Get("client_id") != "srustiops" {
 			w.WriteHeader(400)
 			return
 		}
@@ -74,11 +74,15 @@ func newIdP(t *testing.T) *fakeIdP {
 }
 
 func (f *fakeIdP) idToken(nonce, email string, verified bool) string {
-	b64 := func(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncoding.EncodeToString(b) }
 	now := time.Now().Unix()
-	signing := b64(map[string]string{"alg": "RS256", "kid": "k1", "typ": "JWT"}) + "." + b64(map[string]any{
-		"iss": f.srv.URL, "aud": "pravaha", "sub": "idp|" + email, "email": email, "email_verified": verified,
+	return f.sign(map[string]any{
+		"iss": f.srv.URL, "aud": "srustiops", "sub": "idp|" + email, "email": email, "email_verified": verified,
 		"nonce": nonce, "iat": now, "nbf": now, "exp": now + 300})
+}
+
+func (f *fakeIdP) sign(claims map[string]any) string {
+	b64 := func(v any) string { b, _ := json.Marshal(v); return base64.RawURLEncoding.EncodeToString(b) }
+	signing := b64(map[string]string{"alg": "RS256", "kid": "k1", "typ": "JWT"}) + "." + b64(claims)
 	h := sha256.Sum256([]byte(signing))
 	sig, _ := rsa.SignPKCS1v15(rand.Reader, f.key, crypto.SHA256, h[:])
 	return signing + "." + base64.RawURLEncoding.EncodeToString(sig)
@@ -96,9 +100,9 @@ func (f *fakeIdP) authorize(authURL, email string, verified bool) string {
 }
 
 func testServer(t *testing.T, issuer string) (*Server, *Store, *httptest.Server) {
-	dbURL := os.Getenv("PRAVAHA_TEST_DATABASE_URL")
+	dbURL := os.Getenv("SRUSTIOPS_TEST_DATABASE_URL")
 	if dbURL == "" {
-		t.Skip("PRAVAHA_TEST_DATABASE_URL not set")
+		t.Skip("SRUSTIOPS_TEST_DATABASE_URL not set")
 	}
 	ctx := context.Background()
 	st, err := OpenStore(ctx, dbURL)
@@ -116,7 +120,7 @@ func testServer(t *testing.T, issuer string) (*Server, *Store, *httptest.Server)
 	iss, _ := oidc.New(front.URL, k)
 	cert, key := selfSigned(t)
 	cfg := &config.Central{PublicURL: front.URL, InsecureHTTP: true, ClientCert: cert, ClientKey: key,
-		OIDCIssuer: issuer, OIDCClientID: "pravaha", OIDCRedirectURL: front.URL + "/auth/callback", OIDCLabel: "SSO"}
+		OIDCIssuer: issuer, OIDCClientID: "srustiops", OIDCRedirectURL: front.URL + "/auth/callback", OIDCLabel: "SSO"}
 	srv, err := New(cfg, st, iss, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatal(err)
@@ -197,11 +201,11 @@ func TestSSOAndSCIM(t *testing.T) {
 	bob := "bob" + suffix + "@sso.test"
 	var user map[string]any
 	scimDo(t, front.URL, scim, "POST", "/scim/v2/Users", map[string]any{"userName": bob, "displayName": "Bob"}, 201, &user)
-	scimDo(t, front.URL, "pvh_s_wrong", "GET", "/scim/v2/Users", nil, 401, nil)
+	scimDo(t, front.URL, "sop_s_wrong", "GET", "/scim/v2/Users", nil, 401, nil)
 	var group map[string]any
-	scimDo(t, front.URL, scim, "POST", "/scim/v2/Groups", map[string]any{"displayName": "pravaha:" + tenant.Slug + ":finops",
+	scimDo(t, front.URL, scim, "POST", "/scim/v2/Groups", map[string]any{"displayName": "srustiops:" + tenant.Slug + ":finops",
 		"members": []map[string]string{{"value": user["id"].(string)}}}, 201, &group)
-	scimDo(t, front.URL, scim, "POST", "/scim/v2/Groups", map[string]any{"displayName": "pravaha:" + tenant.Slug + ":root"}, 400, nil)
+	scimDo(t, front.URL, scim, "POST", "/scim/v2/Groups", map[string]any{"displayName": "srustiops:" + tenant.Slug + ":root"}, 400, nil)
 	u, _ := st.UserByEmail(ctx, bob)
 	if p, _ := st.Principal(ctx, u, tenant.Slug); p == nil || !p.HasTenantRole(identity.FinOps) {
 		t.Fatal("group membership did not grant finops")

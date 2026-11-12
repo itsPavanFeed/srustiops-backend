@@ -9,13 +9,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/envfile"
+	"github.com/itsPavanFeed/srustiops-backend/internal/envfile"
 )
 
 // Where the GitHub App settings live:
 //
-//   - PRAVAHA_ENV_FILE set (a writable .env, e.g. a self-hosted install or
-//     development): the PRAVAHA_GITHUB_* keys in that file, with the private key
+//   - SRUSTIOPS_ENV_FILE set (a writable .env, e.g. a self-hosted install or
+//     development): the SRUSTIOPS_GITHUB_* keys in that file, with the private key
 //     in a separate PEM file next to it. Saving in the console writes the file;
 //     editing the file by hand is picked up within seconds.
 //   - otherwise: sealed with the tenant master key in the database.
@@ -24,12 +24,12 @@ import (
 // so webhook deliveries and token minting never read the file or the database.
 
 const (
-	envGitHubAppID   = "PRAVAHA_GITHUB_APP_ID"
-	envGitHubInst    = "PRAVAHA_GITHUB_APP_INSTALLATION_ID"
-	envGitHubAPI     = "PRAVAHA_GITHUB_API_URL"
-	envGitHubKeyFile = "PRAVAHA_GITHUB_APP_PRIVATE_KEY_FILE"
-	envGitHubSecret  = "PRAVAHA_GITHUB_WEBHOOK_SECRET"
-	envGitHubSlug    = "PRAVAHA_GITHUB_APP_SLUG"
+	envGitHubAppID   = "SRUSTIOPS_GITHUB_APP_ID"
+	envGitHubInst    = "SRUSTIOPS_GITHUB_APP_INSTALLATION_ID"
+	envGitHubAPI     = "SRUSTIOPS_GITHUB_API_URL"
+	envGitHubKeyFile = "SRUSTIOPS_GITHUB_APP_PRIVATE_KEY_FILE"
+	envGitHubSecret  = "SRUSTIOPS_GITHUB_WEBHOOK_SECRET"
+	envGitHubSlug    = "SRUSTIOPS_GITHUB_APP_SLUG"
 	defaultKeyFile   = "github-app-private-key.pem"
 )
 

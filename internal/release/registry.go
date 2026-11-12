@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -15,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
 )
 
 // Fetcher downloads one registry module package at an exact version and
@@ -51,7 +52,41 @@ func (r *Registry) client() *http.Client {
 	return &http.Client{Timeout: 2 * time.Minute}
 }
 
+// Fetch downloads one module package. A release vendors dozens, so transient
+// network failures (resets, timeouts, 5xx, 429) are retried with backoff.
 func (r *Registry) Fetch(ctx context.Context, source, version string) (map[string][]byte, string, error) {
+	var lastErr error
+	for attempt, wait := 0, time.Second; attempt < 4; attempt, wait = attempt+1, wait*2 {
+		files, from, err := r.fetchOnce(ctx, source, version)
+		if err == nil || !transient(err) {
+			return files, from, err
+		}
+		lastErr = err
+		select {
+		case <-ctx.Done():
+			return nil, "", ctx.Err()
+		case <-time.After(wait):
+		}
+	}
+	return nil, "", lastErr
+}
+
+// transient reports network errors and server-side failures worth retrying.
+func transient(err error) bool {
+	var ne net.Error
+	if errors.As(err, &ne) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := err.Error()
+	for _, s := range []string{"connection reset", "connection refused", "timeout", "TLS handshake", "(5", "returned 5", "429", "Too Many Requests"} {
+		if strings.Contains(msg, s) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Registry) fetchOnce(ctx context.Context, source, version string) (map[string][]byte, string, error) {
 	base := r.Base
 	if base == "" {
 		base = "https://" + catalog.Registry

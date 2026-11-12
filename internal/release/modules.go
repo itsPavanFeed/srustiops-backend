@@ -22,9 +22,9 @@ import (
 	"github.com/hashicorp/hcl/v2/hclwrite"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/depcheck"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/spec"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/depcheck"
+	"github.com/itsPavanFeed/srustiops-backend/internal/spec"
 )
 
 // ModulesInput is what a module release is built from.
@@ -95,15 +95,24 @@ func BuildModules(ctx context.Context, in ModulesInput) *Result {
 	}
 	type job struct{ src, ver string }
 	var jobs []job
+	files := map[string][]byte{}
+	res.Manifest.Packages = map[string]Package{}
 	for src, vers := range approved {
 		for _, v := range vers {
+			if catalog.IsFirstParty(src) {
+				// First-party code is part of the catalog: vendored as is.
+				dir := PackageDir(src, v)
+				for n, b := range cat.FirstParty[src+"@"+v] {
+					files[dir+"/"+n] = b
+				}
+				res.Manifest.Packages[src+"@"+v] = Package{Dir: dir, Origin: "first-party (" + catalog.FirstPartySum(cat.FirstParty[src+"@"+v])[:12] + ")"}
+				continue
+			}
 			jobs = append(jobs, job{src, v})
 		}
 	}
 	sort.Slice(jobs, func(i, j int) bool { return jobs[i].src+jobs[i].ver < jobs[j].src+jobs[j].ver })
 
-	files := map[string][]byte{}
-	res.Manifest.Packages = map[string]Package{}
 	var mu sync.Mutex
 	var fetchErrs []error
 	sem := make(chan struct{}, 4)

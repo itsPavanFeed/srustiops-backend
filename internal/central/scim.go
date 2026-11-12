@@ -10,17 +10,17 @@ import (
 	"strings"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/httpx"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/identity"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/secure"
+	"github.com/itsPavanFeed/srustiops-backend/internal/httpx"
+	"github.com/itsPavanFeed/srustiops-backend/internal/identity"
+	"github.com/itsPavanFeed/srustiops-backend/internal/secure"
 )
 
 // SCIM 2.0 (RFC 7643/7644) for identity providers: Users are provisioned and
 // deactivated (deactivation revokes every token), and Groups named
 //
-//	pravaha:<tenant>:<tenant-role>
-//	pravaha:<tenant>:entity:<slug>:<role>
-//	pravaha:<tenant>:bu:<slug>:<role>
+//	srustiops:<tenant>:<tenant-role>
+//	srustiops:<tenant>:entity:<slug>:<role>
+//	srustiops:<tenant>:bu:<slug>:<role>
 //
 // grant that role to their members. Memberships created this way are tagged
 // with the group, so removing someone from the group removes only that grant.
@@ -33,7 +33,7 @@ const (
 	scimError = "urn:ietf:params:scim:api:messages:2.0:Error"
 )
 
-var groupRe = regexp.MustCompile(`^pravaha:([a-z][a-z0-9-]{1,31}):(?:(entity|bu):([a-z][a-z0-9-]{1,31}):)?([a-z_]{3,20})$`)
+var groupRe = regexp.MustCompile(`^srustiops:([a-z][a-z0-9-]{1,31}):(?:(entity|bu):([a-z][a-z0-9-]{1,31}):)?([a-z_]{3,20})$`)
 
 func scimErr(w http.ResponseWriter, code int, detail string) {
 	w.Header().Set("Content-Type", "application/scim+json")
@@ -55,7 +55,7 @@ func (s *Server) scimAuth(h http.HandlerFunc) http.Handler {
 			return
 		}
 		tok := httpx.Bearer(r)
-		if !strings.HasPrefix(tok, "pvh_s_") || !s.store.SCIMTokenValid(r.Context(), secure.HashToken(tok)) {
+		if !strings.HasPrefix(tok, "sop_s_") || !s.store.SCIMTokenValid(r.Context(), secure.HashToken(tok)) {
 			s.limiter.Fail(ip)
 			scimErr(w, http.StatusUnauthorized, "invalid SCIM token")
 			return
@@ -266,7 +266,7 @@ type grant struct{ tenant, kind, scope, role string }
 func parseGroup(name string) (grant, error) {
 	m := groupRe.FindStringSubmatch(name)
 	if m == nil {
-		return grant{}, errors.New(`group names must be pravaha:<tenant>:<role>, pravaha:<tenant>:entity:<slug>:<role> or pravaha:<tenant>:bu:<slug>:<role>`)
+		return grant{}, errors.New(`group names must be srustiops:<tenant>:<role>, srustiops:<tenant>:entity:<slug>:<role> or srustiops:<tenant>:bu:<slug>:<role>`)
 	}
 	g := grant{tenant: m[1], kind: m[2], scope: m[3], role: m[4]}
 	if g.kind == "" && !identity.IsTenantRole(g.role) || g.kind != "" && !identity.IsScopedRole(g.role) {
@@ -407,6 +407,12 @@ func (s *Server) grantGroup(ctx context.Context, g *SCIMGroup, gr grant, userID 
 	}
 	t, err := s.store.Tenant(ctx, gr.tenant)
 	if err != nil {
+		return
+	}
+	if t.AccessSource == "tenant" {
+		// The tenant decides its own access: platform-wide SCIM groups no
+		// longer grant there. Its admins use the tenant's own SCIM endpoint.
+		s.log.Warn("ignoring platform SCIM group for a tenant that controls its own access", "group", g.DisplayName, "tenant", t.Slug)
 		return
 	}
 	var entityID, buID *string

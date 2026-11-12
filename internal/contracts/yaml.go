@@ -8,13 +8,13 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/yamlx"
+	"github.com/itsPavanFeed/srustiops-backend/internal/yamlx"
 )
 
 // A contract file describes one resource, Kubernetes style, and holds only
 // what differs from the defaults of its kind:
 //
-//	apiVersion: pravaha/v1
+//	apiVersion: srustiops/v1
 //	kind: S3Bucket
 //	metadata:
 //	  name: orders              # defaults to the file name
@@ -28,6 +28,8 @@ import (
 //	imports:                    # optional: adopt existing resources
 //	  - to: aws_s3_bucket.this[0]
 //	    id: acme-orders-dev
+//	baselineGaps:               # set by adoption: baseline parts the live
+//	  versioning: {}            # resource lacks (only values the kind allows)
 //	outputs:
 //	  - name: orders_bucket_arn
 //	    value: s3_bucket_arn
@@ -37,7 +39,7 @@ import (
 // files name them in metadata (and must agree).
 
 // APIVersion is the only contract version.
-const APIVersion = "pravaha/v1"
+const APIVersion = "srustiops/v1"
 
 // Contract is one stack assembled from the resource files in its folder.
 type Contract struct {
@@ -45,7 +47,8 @@ type Contract struct {
 	Files       []string        `json:"files"` // its resource files
 	Name        string          `json:"name"`
 	Environment string          `json:"environment"`
-	Spec        json.RawMessage `json:"spec"` // a stack spec (internal/spec)
+	Connection  string          `json:"connection,omitempty"` // which of the environment's cloud connections ("" = its only one)
+	Spec        json.RawMessage `json:"spec"`                 // a stack spec (internal/spec)
 	BU          string          `json:"bu,omitempty"`
 	Entity      string          `json:"-"` // nested layout: the entity (product) folder
 }
@@ -57,11 +60,13 @@ type resource struct {
 		Name        string `json:"name,omitempty"`
 		Version     string `json:"version,omitempty"`
 		Environment string `json:"environment,omitempty"`
+		Connection  string `json:"connection,omitempty"`
 		BU          string `json:"bu,omitempty"`
 		Description string `json:"description,omitempty"`
 	} `json:"metadata"`
-	Spec    map[string]json.RawMessage `json:"spec,omitempty"`
-	Imports []struct {
+	Spec         map[string]json.RawMessage `json:"spec,omitempty"`
+	BaselineGaps map[string]json.RawMessage `json:"baselineGaps,omitempty"`
+	Imports      []struct {
 		To string `json:"to"`
 		ID string `json:"id"`
 	} `json:"imports,omitempty"`
@@ -77,7 +82,15 @@ var (
 	// in the generated module name (orders-db -> module.orders_db).
 	resourceNameRe = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,40}$`)
 	refValueRe     = regexp.MustCompile(`^([a-z][a-z0-9_-]{0,40})\.([A-Za-z_][A-Za-z0-9_-]{0,63})$`)
+	// stack/<stack>/<resource>.<output>: an output of another stack.
+	stackRefValueRe = regexp.MustCompile(`^stack/([a-z][a-z0-9-]{1,62})/([a-z][a-z0-9_-]{0,40})\.([A-Za-z_][A-Za-z0-9_-]{0,63})$`)
 )
+
+// isStackRefValue reports a YAML {ref: stack/...} value.
+func isStackRefValue(v json.RawMessage) bool {
+	var m map[string]string
+	return json.Unmarshal(v, &m) == nil && len(m) == 1 && stackRefValueRe.MatchString(m["ref"])
+}
 
 // ModuleName is the module instance name generated for a resource name.
 func ModuleName(resource string) string { return strings.ReplaceAll(resource, "-", "_") }
@@ -195,7 +208,7 @@ func parseStack(folder string, fs []string, files map[string][]byte, dir, layout
 		for _, kv := range []struct {
 			field, got string
 			want       *string
-		}{{"environment", m.Environment, &c.Environment}, {"business unit", m.BU, &c.BU}} {
+		}{{"environment", m.Environment, &c.Environment}, {"business unit", m.BU, &c.BU}, {"connection", m.Connection, &c.Connection}} {
 			switch {
 			case kv.got == "":
 			case *kv.want == "":
@@ -217,10 +230,11 @@ func parseStack(folder string, fs []string, files map[string][]byte, dir, layout
 	}
 
 	type module struct {
-		Name    string                     `json:"name"`
-		Kind    string                     `json:"kind"`
-		Version string                     `json:"version,omitempty"`
-		Inputs  map[string]json.RawMessage `json:"inputs,omitempty"`
+		Name         string                     `json:"name"`
+		Kind         string                     `json:"kind"`
+		Version      string                     `json:"version,omitempty"`
+		Inputs       map[string]json.RawMessage `json:"inputs,omitempty"`
+		BaselineGaps map[string]json.RawMessage `json:"baseline_gaps,omitempty"`
 	}
 	type imp struct {
 		To string `json:"to"`
@@ -266,7 +280,7 @@ func parseStack(folder string, fs []string, files map[string][]byte, dir, layout
 			}
 			inputs[k] = conv
 		}
-		spec.Modules = append(spec.Modules, module{Name: name, Kind: r.Kind, Version: r.Metadata.Version, Inputs: inputs})
+		spec.Modules = append(spec.Modules, module{Name: name, Kind: r.Kind, Version: r.Metadata.Version, Inputs: inputs, BaselineGaps: r.BaselineGaps})
 		for _, im := range r.Imports {
 			// Addresses are relative to the resource's module.
 			to := "module." + name + "." + strings.TrimPrefix(im.To, "module."+name+".")
@@ -284,10 +298,30 @@ func parseStack(folder string, fs []string, files map[string][]byte, dir, layout
 }
 
 // convertValue turns the YAML reference forms into the spec's:
-// {ref: res.output} -> {"$ref": "res_module.output"} and
-// {secretRef: vault://...} -> {"$secret": "vault://..."}. Only a whole input
-// value can be a reference; nested ones are refused by spec validation.
+// {ref: res.output} -> {"$ref": "res_module.output"},
+// {ref: stack/<stack>/res.output} -> {"$ref": "stack/<stack>/res_module.output"}
+// (another stack's applied output) and
+// {secretRef: vault://...} -> {"$secret": "vault://..."}. A reference to
+// another stack may also be a list item; other references must be a whole
+// input value (nested ones are refused by spec validation).
 func convertValue(v json.RawMessage) (json.RawMessage, error) {
+	var list []json.RawMessage
+	if json.Unmarshal(v, &list) == nil {
+		changed := false
+		for i, item := range list {
+			if isStackRefValue(item) {
+				conv, err := convertValue(item)
+				if err != nil {
+					return nil, fmt.Errorf("item %d: %w", i, err)
+				}
+				list[i], changed = conv, true
+			}
+		}
+		if changed {
+			return json.Marshal(list)
+		}
+		return v, nil
+	}
 	var m map[string]json.RawMessage
 	if json.Unmarshal(v, &m) != nil || len(m) != 1 {
 		return v, nil
@@ -297,9 +331,12 @@ func convertValue(v json.RawMessage) (json.RawMessage, error) {
 		if json.Unmarshal(r, &s) != nil {
 			return nil, fmt.Errorf("ref must be a string like orders-key.key_arn")
 		}
+		if p := stackRefValueRe.FindStringSubmatch(s); p != nil {
+			return json.Marshal(map[string]string{"$ref": "stack/" + p[1] + "/" + ModuleName(p[2]) + "." + p[3]})
+		}
 		p := refValueRe.FindStringSubmatch(s)
 		if p == nil {
-			return nil, fmt.Errorf("ref %q must look like <resource>.<output>", s)
+			return nil, fmt.Errorf("ref %q must look like <resource>.<output> or stack/<stack>/<resource>.<output>", s)
 		}
 		return json.Marshal(map[string]string{"$ref": ModuleName(p[1]) + "." + p[2]})
 	}
@@ -314,14 +351,16 @@ func convertValue(v json.RawMessage) (json.RawMessage, error) {
 }
 
 // Render writes a stack spec as contract files, one per resource, for a stack
-// folder. With the flat layout each file names the environment and BU.
-func Render(specJSON []byte, environment, bu string, flat bool) (map[string][]byte, error) {
+// folder. With the flat layout each file names the environment and BU; every
+// file names the cloud connection when one is given.
+func Render(specJSON []byte, environment, bu, connection string, flat bool) (map[string][]byte, error) {
 	var spec struct {
 		Modules []struct {
-			Name    string                     `json:"name"`
-			Kind    string                     `json:"kind"`
-			Version string                     `json:"version"`
-			Inputs  map[string]json.RawMessage `json:"inputs"`
+			Name         string                     `json:"name"`
+			Kind         string                     `json:"kind"`
+			Version      string                     `json:"version"`
+			Inputs       map[string]json.RawMessage `json:"inputs"`
+			BaselineGaps map[string]json.RawMessage `json:"baseline_gaps"`
 		} `json:"modules"`
 		Outputs []struct {
 			Name, Module, Output string
@@ -344,6 +383,9 @@ func Render(specJSON []byte, environment, bu string, flat bool) (map[string][]by
 		if flat {
 			meta = append(meta, yamlx.KV{Key: "environment", Value: environment}, yamlx.KV{Key: "bu", Value: bu})
 		}
+		if connection != "" {
+			meta = append(meta, yamlx.KV{Key: "connection", Value: connection})
+		}
 		doc := yamlx.Map{{Key: "apiVersion", Value: APIVersion}, {Key: "kind", Value: m.Kind}, {Key: "metadata", Value: meta}}
 		if len(m.Inputs) > 0 {
 			keys := make([]string, 0, len(m.Inputs))
@@ -356,6 +398,18 @@ func Render(specJSON []byte, environment, bu string, flat bool) (map[string][]by
 				sp = append(sp, yamlx.KV{Key: k, Value: yamlValue(m.Inputs[k])})
 			}
 			doc = append(doc, yamlx.KV{Key: "spec", Value: sp})
+		}
+		if len(m.BaselineGaps) > 0 {
+			keys := make([]string, 0, len(m.BaselineGaps))
+			for k := range m.BaselineGaps {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+			gaps := yamlx.Map{}
+			for _, k := range keys {
+				gaps = append(gaps, yamlx.KV{Key: k, Value: yamlValue(m.BaselineGaps[k])})
+			}
+			doc = append(doc, yamlx.KV{Key: "baselineGaps", Value: gaps})
 		}
 		var imps []any
 		for _, im := range spec.Imports {
@@ -390,6 +444,22 @@ func Render(specJSON []byte, environment, bu string, flat bool) (map[string][]by
 
 // yamlValue writes a spec value back in contract form ($ref -> ref, $secret -> secretRef).
 func yamlValue(v json.RawMessage) any {
+	var list []json.RawMessage
+	if json.Unmarshal(v, &list) == nil {
+		refs := false
+		for _, item := range list {
+			var m map[string]string
+			refs = refs || json.Unmarshal(item, &m) == nil && m["$ref"] != ""
+		}
+		if !refs {
+			return v
+		}
+		out := make([]any, len(list))
+		for i, item := range list {
+			out[i] = yamlValue(item)
+		}
+		return out
+	}
 	var m map[string]string
 	if json.Unmarshal(v, &m) == nil && len(m) == 1 {
 		if r, ok := m["$ref"]; ok {

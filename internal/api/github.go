@@ -10,14 +10,15 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/githubapp"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/store"
+	"github.com/itsPavanFeed/srustiops-backend/internal/githubapp"
+	"github.com/itsPavanFeed/srustiops-backend/internal/store"
 )
 
 // GitHub App integration: the tenant's own GitHub App authenticates contract
@@ -125,7 +126,12 @@ func (s *Server) getGitHubIntegration(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]any{"configured": ok, "private_key_set": len(g.Key) > 0, "webhook_secret_set": len(g.Secret) > 0,
 		"webhook_path": "/webhooks/github/" + s.cfg.Tenant, "source": g.Source}
 	if g.Source == "env_file" {
-		resp["env_file"] = s.cfg.EnvFile
+		// The file's name only: where it sits on the server is the
+		// operator's business, shown to platform admins alone.
+		resp["env_file"] = filepath.Base(s.cfg.EnvFile)
+		if user(r).PlatformAdmin {
+			resp["env_file"] = s.cfg.EnvFile
+		}
 	}
 	if ok {
 		resp["config"] = cfg
@@ -180,6 +186,9 @@ func (s *Server) putGitHubIntegration(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 422, "invalid GitHub App settings", probs...)
 		return
 	}
+	if s.dryRun(w, r) {
+		return
+	}
 	ctx, by := r.Context(), user(r).Subject
 	prev, _ := s.githubAppConfig(ctx)
 	cfg := githubAppConfig{AppID: appID, InstallationID: instID, APIURL: strings.TrimRight(b.APIURL, "/")}
@@ -208,6 +217,9 @@ func (s *Server) deleteGitHubIntegration(w http.ResponseWriter, r *http.Request)
 	}
 	if c, ok := s.contractsConfig(r.Context()); ok && c.Auth == "github_app" {
 		writeErr(w, http.StatusConflict, "the contracts repository authenticates with this GitHub App; switch it to a token first")
+		return
+	}
+	if s.dryRun(w, r) {
 		return
 	}
 	if err := s.ghClear(r.Context()); err != nil {
@@ -268,7 +280,7 @@ func (s *Server) testGitHubIntegration(w http.ResponseWriter, r *http.Request) {
 		{"metadata", "read", "required"},
 		{"contents", "write", "contracts (read) and self-service pull requests (write)"},
 		{"pull_requests", "write", "pull-request plans: comments and merge after apply"},
-		{"statuses", "write", "pull-request plans: the pravaha/apply status"},
+		{"statuses", "write", "pull-request plans: the srustiops/apply status"},
 	}
 	var missing []string
 	for _, n := range need {
@@ -559,7 +571,7 @@ func (s *Server) handleGitHubEvent(ctx context.Context, d *store.WebhookDelivery
 		s.async(func(ctx context.Context) error { return s.planPR(ctx, n) })
 		return "processed", fmt.Sprintf("planning pull request #%d again (requested by %s)", n, d.Sender)
 	case "pull_request_review", "pull_request_review_comment", "pull_request_review_thread", "commit_comment":
-		return "ignored", "reviews do not change plans; approvals happen in Cloud Pravaha"
+		return "ignored", "reviews do not change plans; approvals happen in SrustiOps"
 	}
 	return "ignored", "event not used"
 }

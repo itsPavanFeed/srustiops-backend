@@ -30,7 +30,7 @@ func TestSealRoundTripAndBinding(t *testing.T) {
 func TestTokens(t *testing.T) {
 	a, _ := NewToken("u")
 	b, _ := NewToken("u")
-	if a == b || !strings.HasPrefix(a, "pvh_u_") || len(a) < 40 {
+	if a == b || !strings.HasPrefix(a, "sop_u_") || len(a) < 40 {
 		t.Fatal("tokens must be unique and long")
 	}
 	if Equal(HashToken(a), HashToken(b)) || !Equal(HashToken(a), HashToken(a)) {

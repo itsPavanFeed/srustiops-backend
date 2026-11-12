@@ -1,0 +1,87 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $egress := .Values.networkPolicy.egress }}
+# The tenant API accepts traffic only from this release's runners and either
+# the link agent (tunnel: nothing outside the namespace reaches it) or
+# central's network (direct).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "tenant.name" . }}
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: srustiops-tenant, app.kubernetes.io/instance: {{ .Release.Name }} }
+  policyTypes: [Ingress{{ if $egress.enabled }}, Egress{{ end }}]
+  ingress:
+    - from:
+        {{- if eq .Values.connectivity "tunnel" }}
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: srustiops-link, app.kubernetes.io/instance: {{ .Release.Name }} }
+        {{- else }}
+        {{- toYaml .Values.central.ingressFrom | nindent 8 }}
+        {{- end }}
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: srustiops-runner, app.kubernetes.io/instance: {{ .Release.Name }} }
+      ports: [{ port: 9443, protocol: TCP }]
+    {{- if .Values.metrics.enabled }}
+    - from: {{- toYaml .Values.metrics.scrapeFrom | nindent 8 }}
+      ports: [{ port: {{ .Values.metrics.port }}, protocol: TCP }]
+    {{- end }}
+  {{- if $egress.enabled }}
+  egress:
+    {{- include "srustiops.egress" . | nindent 4 }}
+  {{- end }}
+---
+# Runners accept no inbound traffic (except metrics scrapes, when on); they only
+# poll the tenant plane and reach cloud APIs.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-runner
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: srustiops-runner, app.kubernetes.io/instance: {{ .Release.Name }} }
+  policyTypes: [Ingress{{ if $egress.enabled }}, Egress{{ end }}]
+  {{- if .Values.metrics.enabled }}
+  ingress:
+    - from: {{- toYaml .Values.metrics.scrapeFrom | nindent 8 }}
+      ports: [{ port: {{ .Values.metrics.port }}, protocol: TCP }]
+  {{- else }}
+  ingress: []
+  {{- end }}
+  {{- if $egress.enabled }}
+  egress:
+    {{- include "srustiops.egress" . | nindent 4 }}
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: srustiops-tenant, app.kubernetes.io/instance: {{ .Release.Name }} }
+      ports: [{ port: 9443, protocol: TCP }]
+  {{- end }}
+---
+# The link agent accepts nothing (except the tenant plane on the egress relay,
+# when on); it dials the gateway (allowed in egress.to) and the tenant API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}-link
+spec:
+  podSelector:
+    matchLabels: { app.kubernetes.io/name: srustiops-link, app.kubernetes.io/instance: {{ .Release.Name }} }
+  policyTypes: [Ingress{{ if $egress.enabled }}, Egress{{ end }}]
+  {{- if .Values.link.egressRelay }}
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: srustiops-tenant, app.kubernetes.io/instance: {{ .Release.Name }} }
+      ports: [{ port: 3128, protocol: TCP }]
+  {{- else }}
+  ingress: []
+  {{- end }}
+  {{- if $egress.enabled }}
+  egress:
+    {{- include "srustiops.egress" . | nindent 4 }}
+    - to:
+        - podSelector:
+            matchLabels: { app.kubernetes.io/name: srustiops-tenant, app.kubernetes.io/instance: {{ .Release.Name }} }
+      ports: [{ port: 9443, protocol: TCP }]
+  {{- end }}
+{{- end }}

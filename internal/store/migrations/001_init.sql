@@ -1,4 +1,4 @@
--- Cloud Pravaha schema v1.
+-- SrustiOps schema v1.
 
 CREATE TABLE schema_meta (
     key   text PRIMARY KEY,

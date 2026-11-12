@@ -9,12 +9,11 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/contracts"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/risk"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/store"
+	"github.com/itsPavanFeed/srustiops-backend/internal/contracts"
+	"github.com/itsPavanFeed/srustiops-backend/internal/risk"
+	"github.com/itsPavanFeed/srustiops-backend/internal/store"
 )
 
 const (
@@ -40,7 +39,8 @@ type SyncStatus struct {
 	Results  []SyncResult `json:"results"`
 }
 
-var syncMu sync.Mutex
+// contractsLock: one contracts sync at a time, on any replica.
+const contractsLock = 7311
 
 func (s *Server) contractsConfig(ctx context.Context) (*contracts.Config, bool) {
 	var c contracts.Config
@@ -48,6 +48,7 @@ func (s *Server) contractsConfig(ctx context.Context) (*contracts.Config, bool) 
 	if err != nil || !ok {
 		return nil, false
 	}
+	s.store.SetPRScope(c.Provider, c.Repo) // pull requests are those of this repository
 	return &c, true
 }
 
@@ -76,6 +77,9 @@ func (s *Server) putContracts(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 422, "invalid contracts repository", "configure the GitHub App under Integrations first")
 		return
 	}
+	if s.dryRun(w, r) {
+		return
+	}
 	if err := s.store.PutSetting(r.Context(), contractsKey, c, user(r).Subject); err != nil {
 		s.writeStoreErr(w, err, "")
 		return
@@ -98,6 +102,9 @@ func (s *Server) putContractsToken(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(b.Token) < 8 || len(b.Token) > 512 || strings.ContainsAny(b.Token, " \n\r\t") {
 		writeErr(w, 422, "token must be 8-512 characters without whitespace")
+		return
+	}
+	if s.dryRun(w, r) {
 		return
 	}
 	sealed, err := s.sealer.Seal([]byte(b.Token), []byte(tokenAAD))
@@ -156,6 +163,12 @@ func (s *Server) contractsSyncer(ctx context.Context) {
 		if !ok || !cfg.Enabled || time.Since(last) < time.Duration(cfg.PollSeconds)*time.Second {
 			continue
 		}
+		// Another replica may have synced: the status is shared.
+		var st SyncStatus
+		if s.store.Setting(ctx, contractsStatusKey, &st); time.Since(st.SyncedAt) < time.Duration(cfg.PollSeconds)*time.Second {
+			last = st.SyncedAt
+			continue
+		}
 		last = time.Now()
 		if _, err := s.syncContracts(ctx, false); err != nil {
 			s.log.Warn("contracts sync failed", "err", err)
@@ -165,8 +178,16 @@ func (s *Server) contractsSyncer(ctx context.Context) {
 
 // syncContracts brings Git-managed stacks in line with the repository's branch.
 func (s *Server) syncContracts(ctx context.Context, force bool) (*SyncStatus, error) {
-	syncMu.Lock()
-	defer syncMu.Unlock()
+	var out *SyncStatus
+	err := s.store.WithLock(ctx, contractsLock, 10*time.Minute, func(ctx context.Context) error {
+		var err error
+		out, err = s.syncContractsLocked(ctx, force)
+		return err
+	})
+	return out, err
+}
+
+func (s *Server) syncContractsLocked(ctx context.Context, force bool) (*SyncStatus, error) {
 	cfg, ok := s.contractsConfig(ctx)
 	if !ok {
 		return nil, errors.New("no contracts repository is configured")
@@ -248,6 +269,10 @@ func (s *Server) applyContract(ctx context.Context, cfg *contracts.Config, c con
 	if err != nil {
 		return errOut(fmt.Sprintf("entity %s has no environment %s", entity, c.Environment))
 	}
+	env, connID, prob := pickConnection(env, c.Connection)
+	if prob != "" {
+		return errOut(prob)
+	}
 	gen, _, probs := s.build(ctx, c.Name, c.BU, env, c.Spec)
 	if probs != nil {
 		return errOut(strings.Join(probs, "; "))
@@ -256,7 +281,7 @@ func (s *Server) applyContract(ctx context.Context, cfg *contracts.Config, c con
 	existing, err := s.store.GetStack(ctx, c.Name)
 	switch {
 	case errors.Is(err, store.ErrNotFound):
-		st, err := s.store.CreateManagedStack(ctx, c.Name, c.BU, env.Entity, env.ID, spec, actor, "git", rev)
+		st, err := s.store.CreateManagedStack(ctx, c.Name, c.BU, env.Entity, env.ID, connID, spec, actor, "git", rev)
 		if err != nil {
 			return errOut("could not create the stack: " + err.Error())
 		}
@@ -269,6 +294,8 @@ func (s *Server) applyContract(ctx context.Context, cfg *contracts.Config, c con
 		return errOut("a stack with this name exists and is managed in the UI")
 	case existing.EnvironmentID != env.ID || existing.BU != c.BU:
 		return errOut("a stack cannot move to another environment or business unit; use a new name")
+	case !sameConn(existing.ConnectionID, connID):
+		return errOut("a stack cannot move to another cloud connection; use a new name")
 	case sameJSON(existing.Spec, spec) && existing.PRNumber == nil:
 		res.Action = "unchanged"
 		return res
@@ -325,3 +352,5 @@ func sameJSON(a, b []byte) bool {
 	ya, _ := json.Marshal(y)
 	return bytes.Equal(xa, ya)
 }
+
+func sameConn(a, b *string) bool { return (a == nil && b == nil) || (a != nil && b != nil && *a == *b) }

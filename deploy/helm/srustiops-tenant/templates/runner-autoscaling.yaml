@@ -1,0 +1,30 @@
+{{- if and .Values.runner.enabled .Values.runner.autoscaling.enabled }}
+{{- if not .Values.metrics.enabled }}
+{{- fail "runner.autoscaling needs metrics.enabled: KEDA scales on the run queue the tenant plane reports" }}
+{{- end }}
+# Runners follow the run queue: KEDA reads srustiops_runs_queued for this
+# release's pool from Prometheus and keeps one runner per queuePerRunner
+# queued runs. Scale-down waits five minutes so a run in progress is not cut
+# short by the next quiet minute.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ .Release.Name }}-runner
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    name: {{ .Release.Name }}-runner
+  minReplicaCount: {{ .Values.runner.autoscaling.minReplicas }}
+  maxReplicaCount: {{ .Values.runner.autoscaling.maxReplicas }}
+  cooldownPeriod: 300
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown: { stabilizationWindowSeconds: 300 }
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: {{ .Values.runner.autoscaling.prometheusAddress | quote }}
+        query: sum(srustiops_runs_queued{pool="{{ .Values.runner.pool }}"}) or vector(0)
+        threshold: {{ .Values.runner.autoscaling.queuePerRunner | quote }}
+{{- end }}

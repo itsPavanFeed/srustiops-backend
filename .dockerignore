@@ -2,4 +2,4 @@
 bin
 *.md
 !internal/assistant/guide.md
-terraform-provider-pravaha
+terraform-provider-srustiops

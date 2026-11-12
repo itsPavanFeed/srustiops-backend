@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/envfile"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/store"
+	"github.com/itsPavanFeed/srustiops-backend/internal/envfile"
+	"github.com/itsPavanFeed/srustiops-backend/internal/store"
 )
 
 // Notifications: every platform event of interest is stored for the in-app
@@ -29,8 +29,8 @@ type slackSettings struct {
 const (
 	slackSetting    = "slack"
 	slackAAD        = "slack-webhook"
-	envSlackURL     = "PRAVAHA_SLACK_WEBHOOK_URL"
-	envSlackButtons = "PRAVAHA_SLACK_INTERACTIVE"
+	envSlackURL     = "SRUSTIOPS_SLACK_WEBHOOK_URL"
+	envSlackButtons = "SRUSTIOPS_SLACK_INTERACTIVE"
 )
 
 // notifyEvent records a notification and forwards it to Slack. It never fails the caller.
@@ -43,6 +43,8 @@ func (s *Server) notifyEvent(ctx context.Context, n store.Notification) {
 	if sl := s.slack(); sl.WebhookURL != "" {
 		go s.sendSlack(sl, saved)
 	}
+	s.emailNotification(context.WithoutCancel(ctx), saved)
+	s.sendChannels(context.WithoutCancel(ctx), saved)
 }
 
 func (s *Server) notifyRun(ctx context.Context, run *store.Run, kind, severity, title, body string, steps []string) {
@@ -99,20 +101,20 @@ func (s *Server) slackMessage(sl slackSettings, n *store.Notification) map[strin
 	}
 	blocks := []any{
 		map[string]any{"type": "section", "text": map[string]string{"type": "mrkdwn", "text": text}},
-		map[string]any{"type": "context", "elements": []any{map[string]string{"type": "mrkdwn", "text": scope + " · Cloud Pravaha"}}},
+		map[string]any{"type": "context", "elements": []any{map[string]string{"type": "mrkdwn", "text": scope + " · SrustiOps"}}},
 	}
 	actions := []any{}
 	if n.Link != "" {
-		actions = append(actions, map[string]any{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Open in Cloud Pravaha"}, "url": s.consoleURL(n.Link)})
+		actions = append(actions, map[string]any{"type": "button", "text": map[string]string{"type": "plain_text", "text": "Open in SrustiOps"}, "url": s.consoleURL(n.Link)})
 	}
 	if sl.Interactive && n.Severity == "action" && n.RunID != nil {
 		for _, step := range n.Steps {
 			v, _ := json.Marshal(map[string]string{"run": *n.RunID, "step": step})
-			actions = append(actions, map[string]any{"type": "button", "style": "primary", "action_id": "pravaha_approve_" + step,
+			actions = append(actions, map[string]any{"type": "button", "style": "primary", "action_id": "srustiops_approve_" + step,
 				"text": map[string]string{"type": "plain_text", "text": "Approve as " + step}, "value": string(v)})
 		}
 		v, _ := json.Marshal(map[string]string{"run": *n.RunID})
-		actions = append(actions, map[string]any{"type": "button", "style": "danger", "action_id": "pravaha_reject",
+		actions = append(actions, map[string]any{"type": "button", "style": "danger", "action_id": "srustiops_reject",
 			"text": map[string]string{"type": "plain_text", "text": "Reject"}, "value": string(v),
 			"confirm": map[string]any{"title": map[string]string{"type": "plain_text", "text": "Reject this plan?"},
 				"text":    map[string]string{"type": "plain_text", "text": "The plan is discarded and nothing is applied."},
@@ -155,7 +157,8 @@ func (s *Server) sendSlack(sl slackSettings, n *store.Notification) error {
 func (s *Server) listNotifications(w http.ResponseWriter, r *http.Request) {
 	n := limit(r, 20, 100)
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
-	items, err := s.store.ListNotifications(r.Context(), visible(r), before, n+1)
+	s.store.TouchVisibility(r.Context(), user(r).Subject, visible(r))
+	items, err := s.store.ListNotifications(r.Context(), visible(r), s.mutedKinds(r.Context(), user(r).Subject), before, n+1)
 	if err != nil {
 		s.writeStoreErr(w, err, "")
 		return
@@ -168,7 +171,7 @@ func (s *Server) listNotifications(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) unreadNotifications(w http.ResponseWriter, r *http.Request) {
-	n, last, read, err := s.store.UnreadNotifications(r.Context(), user(r).Subject, visible(r))
+	n, last, read, err := s.store.UnreadNotifications(r.Context(), user(r).Subject, visible(r), s.mutedKinds(r.Context(), user(r).Subject))
 	if err != nil {
 		s.writeStoreErr(w, err, "")
 		return
@@ -226,6 +229,9 @@ func (s *Server) putSlackIntegration(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 422, "webhook_url must be a Slack incoming webhook URL (https://hooks.slack.com/services/...)")
 		return
 	}
+	if s.dryRun(w, r) {
+		return
+	}
 	sl := slackSettings{WebhookURL: b.WebhookURL, Interactive: b.Interactive}
 	var err error
 	if s.cfg.EnvFile != "" {
@@ -249,6 +255,9 @@ func (s *Server) putSlackIntegration(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteSlackIntegration(w http.ResponseWriter, r *http.Request) {
 	if !tenantAdmin(w, r) {
+		return
+	}
+	if s.dryRun(w, r) {
 		return
 	}
 	var err error
@@ -275,7 +284,7 @@ func (s *Server) testSlackIntegration(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "no Slack webhook is configured")
 		return
 	}
-	n := &store.Notification{Kind: "test", Severity: "info", Title: "Cloud Pravaha is connected to this channel",
+	n := &store.Notification{Kind: "test", Severity: "info", Title: "SrustiOps is connected to this channel",
 		Body: "Sent by " + user(r).Subject + " from Integrations → Slack.", Link: "integrations/slack"}
 	if err := s.sendSlack(sl, n); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())

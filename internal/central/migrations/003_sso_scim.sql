@@ -13,7 +13,7 @@ CREATE TABLE auth_codes (
 );
 
 -- SCIM provisioning: bearer tokens for the identity provider, and groups whose
--- names map to roles (pravaha:<tenant>:<role>, ...:entity:<slug>:<role>, ...:bu:<slug>:<role>).
+-- names map to roles (srustiops:<tenant>:<role>, ...:entity:<slug>:<role>, ...:bu:<slug>:<role>).
 CREATE TABLE scim_tokens (
     id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     name       text NOT NULL,

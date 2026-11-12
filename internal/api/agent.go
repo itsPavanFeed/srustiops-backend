@@ -8,19 +8,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/cost"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/oidc"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/opapolicy"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/policy"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/redact"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/risk"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/secure"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/store"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/cost"
+	"github.com/itsPavanFeed/srustiops-backend/internal/oidc"
+	"github.com/itsPavanFeed/srustiops-backend/internal/opapolicy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/policy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/redact"
+	"github.com/itsPavanFeed/srustiops-backend/internal/risk"
+	"github.com/itsPavanFeed/srustiops-backend/internal/secure"
+	"github.com/itsPavanFeed/srustiops-backend/internal/spec"
+	"github.com/itsPavanFeed/srustiops-backend/internal/store"
 )
 
 const (
@@ -51,7 +53,11 @@ type Job struct {
 	TofuVersion string            `json:"tofu_version"`
 	OIDCToken   string            `json:"oidc_token,omitempty"`
 	VaultToken  string            `json:"vault_token,omitempty"` // for the secret store's JWT login
-	Bundle      *JobBundle        `json:"bundle,omitempty"`      // vendored modules of the deployed release
+	// Vault mode: environment variables the runner fills from the secret
+	// store (references only), and the store to read them from.
+	SecretEnv   map[string]string `json:"secret_env,omitempty"`
+	SecretStore *spec.Vault       `json:"secret_store,omitempty"`
+	Bundle      *JobBundle        `json:"bundle,omitempty"` // vendored modules of the deployed release
 	PlanSHA256  string            `json:"plan_sha256,omitempty"`
 	Catalog     JobCatalog        `json:"catalog"` // used by runners that do not pin their own catalog
 	// Phase-specific cloud identity: plan and apply may use different roles.
@@ -112,7 +118,7 @@ func (s *Server) startJob(w http.ResponseWriter, r *http.Request, run *store.Run
 		fail("stack not found")
 		return
 	}
-	env, err := s.store.GetEnvironment(ctx, st.EnvironmentID)
+	env, err := s.stackEnv(ctx, st)
 	if err != nil {
 		fail("environment not found")
 		return
@@ -151,14 +157,18 @@ func (s *Server) startJob(w http.ResponseWriter, r *http.Request, run *store.Run
 			return
 		}
 	}
-	if gen.Secrets {
+	if refs := cloud.SecretEnv(); len(refs) > 0 {
+		job.SecretEnv = refs
+	}
+	if gen.Secrets || len(job.SecretEnv) > 0 {
 		// The secret store gets its own token, for its own audience: a cloud
 		// token can never be replayed against Vault, or the other way round.
 		v := s.secretStore(ctx)
 		if v == nil {
-			fail("the stack uses secret references but no secret store is configured")
+			fail("the stack (or its cloud connection) uses secret references but no secret store is configured")
 			return
 		}
+		job.SecretStore = v
 		job.VaultToken, err = s.issuer.Sign(oidc.Claims{
 			Subject: oidc.Subject(env.Entity, env.Name, st.Name, phase), Audience: v.TokenAudience(),
 			Entity: env.Entity, Environment: env.Name, Stack: st.Name, RunID: run.ID, Phase: phase, TTL: oidcTokenTTL,
@@ -181,9 +191,18 @@ func (s *Server) agentLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Runners redact before sending; this second pass catches anything secret-shaped.
-	if err := s.store.AppendLog(r.Context(), who(r).Run.ID, serverRedactor.String(string(bytes.ToValidUTF8(b, []byte("?"))))); err != nil {
-		s.writeStoreErr(w, err, "")
-		return
+	// An empty post is a heartbeat: it keeps the run alive and asks whether
+	// someone cancelled it.
+	if len(b) > 0 {
+		if err := s.store.AppendLog(r.Context(), who(r).Run.ID, serverRedactor.String(string(bytes.ToValidUTF8(b, []byte("?"))))); err != nil {
+			s.writeStoreErr(w, err, "")
+			return
+		}
+	} else {
+		s.store.TouchRun(r.Context(), who(r).Run.ID)
+	}
+	if by := s.store.CancelRequested(r.Context(), who(r).Run.ID); by != "" {
+		w.Header().Set("X-SrustiOps-Cancel", by)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -217,33 +236,47 @@ func (s *Server) agentPlan(w http.ResponseWriter, r *http.Request) {
 		s.writeStoreErr(w, err, "")
 		return
 	}
-	env, err := s.store.GetEnvironment(ctx, st.EnvironmentID)
+	env, err := s.stackEnv(ctx, st)
 	if err != nil {
 		s.writeStoreErr(w, err, "")
 		return
+	}
+	// The plan read the whole state: that is what the stack manages now.
+	if up.Summary.State != nil {
+		s.store.SetStackResources(ctx, st.ID, stackResources(up.Summary.State))
 	}
 	if run.Operation == "drift" {
 		s.recordDrift(w, r, run, st, up)
 		return
 	}
-	res := policy.Evaluate(up.Summary, policy.Limits{MaxDestroys: env.MaxDestroys, MaxCreates: env.MaxCreates, MaxImports: env.MaxImports, AllowDestroy: env.AllowDestroy, Destroying: run.Operation == "destroy"})
+	res := policy.Evaluate(up.Summary, policy.Limits{MaxDestroys: env.MaxDestroys, MaxCreates: env.MaxCreates, MaxImports: env.MaxImports, AllowDestroy: env.AllowDestroy, Destroying: run.Operation == "destroy",
+		ZeroDiff: run.ZeroDiff}) // a contract matched to the live resources
 	if sets := s.tenantPolicies(ctx, run); len(sets) > 0 {
-		for _, v := range opapolicy.Evaluate(ctx, sets, s.policyInput(run, env, up.Summary)) {
+		for _, v := range opapolicy.Evaluate(ctx, sets, s.policyInput(ctx, run, env, up.Summary)) {
 			res.Violations = append(res.Violations, v)
 			if v.Level == "hard" {
 				res.Passed = false
 			}
 		}
 	}
+	// A plan whose refresh found the live resources changed, but that changes
+	// nothing itself, still has to be applied: only then is the refreshed
+	// state saved, and drift checks stop reporting what the contract already
+	// matches. Such an apply only writes state, so it needs no approval.
+	refreshOnly := run.Operation == "apply" && res.Passed && !up.Summary.HasChanges() && len(up.Summary.Drift) > 0
 	status := "planned"
 	switch {
 	case !res.Passed:
 		status = "policy_failed"
+	case refreshOnly:
 	case !up.Summary.HasChanges():
 		status = "no_changes"
 	}
 	est := cost.Of(up.Summary)
 	rk := risk.ClassifyWith(up.Summary, run.Operation, env.Tier, est.MonthlyDelta, s.riskSettings(ctx))
+	if refreshOnly {
+		rk = risk.Result{Level: risk.Low, Steps: []string{}, Reasons: []string{"state refresh only: the live resources match the contract; applying saves the refreshed state and changes nothing in the cloud"}}
+	}
 	var sealed []byte
 	var object string
 	if status == "planned" {
@@ -281,6 +314,17 @@ func (s *Server) agentPlan(w http.ResponseWriter, r *http.Request) {
 		"risk": rk.Level, "required_approvals": rk.Steps, "monthly_cost_delta_usd": est.MonthlyDelta,
 	})
 	s.engine.Planned(ctx, run.ID, status == "planned")
+	switch {
+	case refreshOnly:
+		if err := s.store.QueueApply(ctx, run.ID); err == nil {
+			s.audit(ctx, "system:state-refresh", "run.approve", "run/"+run.ID, run.BU, map[string]any{"auto": true, "reason": "state refresh only"})
+			s.engine.Approved(ctx, run.ID)
+		}
+	case status == "no_changes":
+		s.recordSettledImports(ctx, run, &up.Summary)
+		s.saveCandidate(ctx, run, &up.Summary)
+		s.settleImportsFromPlan(ctx, run, &up.Summary)
+	}
 	if status == "planned" && run.PRNumber != nil {
 		// The pull request may have been closed, or got new commits, while this
 		// plan was being made: such a plan must never be approved.
@@ -291,7 +335,7 @@ func (s *Server) agentPlan(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if status == "planned" {
+	if status == "planned" && !refreshOnly {
 		s.autoApplyLowRisk(ctx, run, rk)
 	}
 	if cur, err := s.store.GetRun(ctx, run.ID); err == nil {
@@ -303,6 +347,8 @@ func (s *Server) agentPlan(w http.ResponseWriter, r *http.Request) {
 			s.notifyRun(ctx, cur, "run.no_changes", "info", "No changes: "+cur.StackName, "The plan matches the deployed infrastructure.", nil)
 		case cur.Status == "discarded":
 			// superseded pull-request plan: nothing to announce
+		case refreshOnly:
+			s.notifyRun(ctx, cur, "run.state_refresh", "info", "Saving refreshed state: "+cur.StackName, "The live resources match the contract; the refreshed state is saved, nothing changes in the cloud.", nil)
 		case cur.Status == "apply_queued":
 			s.notifyRun(ctx, cur, "run.auto_approved", "info", "Auto-approved (low risk): "+cur.StackName, changes, nil)
 		default:
@@ -332,6 +378,7 @@ func (s *Server) recordDrift(w http.ResponseWriter, r *http.Request, run *store.
 		s.writeStoreErr(w, err, "run is not planning")
 		return
 	}
+	s.store.MarkDriftChecked(ctx, st.ID)
 	var drifted []string
 	for _, d := range up.Summary.Drift {
 		drifted = append(drifted, d.Address)
@@ -343,7 +390,6 @@ func (s *Server) recordDrift(w http.ResponseWriter, r *http.Request, run *store.
 	s.engine.Planned(ctx, run.ID, false)
 	writeJSON(w, 200, map[string]any{"status": status, "drifted": drifted})
 }
-
 
 func planKey(runID string) string { return "plans/" + runID + ".sealed" }
 
@@ -402,11 +448,15 @@ func (s *Server) agentGetPlan(w http.ResponseWriter, r *http.Request) {
 func (s *Server) agentFinish(w http.ResponseWriter, r *http.Request) {
 	run := who(r).Run
 	var b struct {
-		Status string `json:"status"`
-		Error  string `json:"error"`
+		Status         string   `json:"status"`
+		Error          string   `json:"error"`
+		MissingImports []string `json:"missing_imports"`
 	}
 	if !decode(w, r, &b) {
 		return
+	}
+	if len(b.MissingImports) > 50 {
+		b.MissingImports = b.MissingImports[:50]
 	}
 	ok := b.Status == "failed" || (b.Status == "applied" && run.Status == "applying")
 	if !ok {
@@ -417,14 +467,35 @@ func (s *Server) agentFinish(w http.ResponseWriter, r *http.Request) {
 		b.Error = b.Error[:4000]
 	}
 	b.Error = serverRedactor.String(b.Error)
+	// A run someone cancelled ends as cancelled, unless the apply finished first.
+	if by := s.store.CancelRequested(r.Context(), run.ID); by != "" && b.Status == "failed" {
+		b.Status, b.Error = "cancelled", "cancelled by "+by
+	}
 	if err := s.store.FinishRun(r.Context(), run.ID, b.Status, b.Error); err != nil {
 		s.writeStoreErr(w, err, "run already finished")
 		return
 	}
 	s.engine.Finished(r.Context(), run.ID)
+	if b.Status == "failed" && run.Status == "planning" {
+		if note := s.adoptAsItExists(r.Context(), run, b.MissingImports); note != "" {
+			b.Error += "\n" + note
+			s.store.SetRunError(r.Context(), run.ID, b.Error)
+		}
+	}
 	if b.Status == "applied" {
+		// After the apply the state holds what the plan planned.
+		var sum policy.Summary
+		if json.Unmarshal(run.PlanSummary, &sum) == nil && (sum.Planned != nil || run.Operation == "destroy") {
+			s.store.SetStackResources(r.Context(), run.StackID, stackResources(sum.Planned))
+		}
 		s.adoptPRSpec(r.Context(), run)
+		s.recordSettledImports(r.Context(), run, nil)
+		s.saveCandidate(r.Context(), run, nil)
+		s.settleImports(r.Context(), run)
+		s.afterApply(context.WithoutCancel(r.Context()), run)
 		s.notifyRun(r.Context(), run, "run.applied", "success", "Applied: "+run.StackName, "Applied in "+run.Environment+".", nil)
+	} else if b.Status == "cancelled" {
+		s.notifyRun(r.Context(), run, "run.cancelled", "warning", "Cancelled: "+run.StackName, b.Error+".", nil)
 	} else {
 		s.notifyRun(r.Context(), run, "run.failed", "error", "Failed: "+run.StackName, serverRedactor.String(firstLine(b.Error)), nil)
 	}
@@ -549,8 +620,8 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 // (applied, or planned with no changes), so the contracts sync after the merge
 // finds nothing to change.
 func (s *Server) adoptPRSpec(ctx context.Context, run *store.Run) {
-	if len(run.Spec) == 0 {
-		return
+	if len(run.Spec) == 0 || run.PRNumber == nil {
+		return // a candidate run's contract was saved when its plan passed
 	}
 	n := 0
 	if run.PRNumber != nil {
@@ -579,3 +650,61 @@ func firstLine(s string) string {
 	}
 	return s
 }
+
+func outputAAD(stackID, name string) []byte { return []byte("stack-output:" + stackID + ":" + name) }
+
+// agentOutputs stores the resource outputs an apply exported, sealed, for the
+// stacks that reference them.
+func (s *Server) agentOutputs(w http.ResponseWriter, r *http.Request) {
+	run := who(r).Run
+	if run.Status != "applying" {
+		writeErr(w, http.StatusConflict, "outputs are reported while applying")
+		return
+	}
+	var b struct {
+		Outputs map[string]json.RawMessage `json:"outputs"`
+	}
+	if !decode(w, r, &b) {
+		return
+	}
+	if len(b.Outputs) > 500 {
+		writeErr(w, 422, "too many outputs")
+		return
+	}
+	sealed := map[string][]byte{}
+	for name, v := range b.Outputs {
+		if !outputNameRe.MatchString(name) || len(v) > 64<<10 || !json.Valid(v) {
+			writeErr(w, 422, "invalid output "+name)
+			return
+		}
+		sv, err := s.sealer.Seal(v, outputAAD(run.StackID, name))
+		if err != nil {
+			s.writeStoreErr(w, err, "")
+			return
+		}
+		sealed[name] = sv
+	}
+	ctx := r.Context()
+	before, _ := s.store.StackOutputs(ctx, run.StackID)
+	if err := s.store.PutStackOutputs(ctx, run.StackID, run.ID, sealed); err != nil {
+		s.writeStoreErr(w, err, "")
+		return
+	}
+	changed := len(before) != len(b.Outputs)
+	for name, v := range b.Outputs {
+		old, ok := before[name]
+		if !ok {
+			changed = true
+			continue
+		}
+		if prev, err := s.sealer.Open(old, outputAAD(run.StackID, name)); err != nil || !sameJSON(prev, v) {
+			changed = true
+		}
+	}
+	if changed {
+		s.outputsChanged.Store(run.StackID, true)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+var outputNameRe = regexp.MustCompile(`^[a-z][a-z0-9_]{0,40}\.[A-Za-z_][A-Za-z0-9_-]{0,63}$`)

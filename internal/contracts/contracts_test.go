@@ -29,9 +29,9 @@ func tarball(t *testing.T, files map[string]string) []byte {
 }
 
 var repoFiles = map[string]string{
-	"stacks/payments-net/naming.yaml": "apiVersion: pravaha/v1\nkind: AzureNaming\nmetadata:\n  environment: payments-dev\n  bu: payments\nspec:\n  suffix: [pay]\n",
-	"stacks/loose.yaml":               "apiVersion: pravaha/v1\nkind: AzureNaming\n",
-	"stacks/bad/x.yaml":               "apiVersion: pravaha/v1\nkind: AzureNaming\nterraform: {}\n",
+	"stacks/payments-net/naming.yaml": "apiVersion: srustiops/v1\nkind: AzureNaming\nmetadata:\n  environment: payments-dev\n  bu: payments\nspec:\n  suffix: [pay]\n",
+	"stacks/loose.yaml":               "apiVersion: srustiops/v1\nkind: AzureNaming\n",
+	"stacks/bad/x.yaml":               "apiVersion: srustiops/v1\nkind: AzureNaming\nterraform: {}\n",
 	"README.md":                       "# contracts",
 }
 
@@ -126,7 +126,7 @@ func keys(m map[string][]byte) string {
 
 func TestNestedLayout(t *testing.T) {
 	r := func(kind, extra string) []byte {
-		return []byte("apiVersion: pravaha/v1\nkind: " + kind + "\n" + extra)
+		return []byte("apiVersion: srustiops/v1\nkind: " + kind + "\n" + extra)
 	}
 	files := map[string][]byte{
 		"stacks/retail/prod/payments/api/bucket.yaml": r("S3Bucket", "spec:\n  bucket: acme-api\n"),
@@ -165,8 +165,8 @@ func TestNestedLayout(t *testing.T) {
 
 func TestReferencesSecretsImportsOutputs(t *testing.T) {
 	files := map[string][]byte{
-		"s/orders/key.yaml": []byte("apiVersion: pravaha/v1\nkind: KMSKey\nmetadata:\n  name: orders-key\n  environment: dev\n  bu: payments\noutputs:\n  - name: key-arn\n    value: key_arn\n"),
-		"s/orders/db.yaml": []byte(`apiVersion: pravaha/v1
+		"s/orders/key.yaml": []byte("apiVersion: srustiops/v1\nkind: KMSKey\nmetadata:\n  name: orders-key\n  environment: dev\n  bu: payments\noutputs:\n  - name: key-arn\n    value: key_arn\n"),
+		"s/orders/db.yaml": []byte(`apiVersion: srustiops/v1
 kind: RDSDatabase
 metadata:
   name: orders-db
@@ -200,7 +200,7 @@ imports:
 		}
 	}
 	// Render writes the same resources back as contract files.
-	out, err := Render(cs[0].Spec, "dev", "payments", true)
+	out, err := Render(cs[0].Spec, "dev", "payments", "", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,10 +219,10 @@ imports:
 
 func TestRejectsUnsafeYAML(t *testing.T) {
 	for name, body := range map[string]string{
-		"alias":   "apiVersion: pravaha/v1\nkind: S3Bucket\nmetadata: &m {environment: dev, bu: p}\nspec: {bucket: *m}\n",
+		"alias":   "apiVersion: srustiops/v1\nkind: S3Bucket\nmetadata: &m {environment: dev, bu: p}\nspec: {bucket: *m}\n",
 		"version": "apiVersion: v2\nkind: S3Bucket\nmetadata: {environment: dev, bu: p}\n",
-		"unknown": "apiVersion: pravaha/v1\nkind: S3Bucket\nmetadata: {environment: dev, bu: p}\nprovisioner: {}\n",
-		"name":    "apiVersion: pravaha/v1\nkind: S3Bucket\nmetadata: {name: \"Bad Name\", environment: dev, bu: p}\n",
+		"unknown": "apiVersion: srustiops/v1\nkind: S3Bucket\nmetadata: {environment: dev, bu: p}\nprovisioner: {}\n",
+		"name":    "apiVersion: srustiops/v1\nkind: S3Bucket\nmetadata: {name: \"Bad Name\", environment: dev, bu: p}\n",
 	} {
 		_, probs := Parse(map[string][]byte{"s/x/r.yaml": []byte(body)}, "s")
 		if len(probs) == 0 {

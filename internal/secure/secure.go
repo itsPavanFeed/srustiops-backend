@@ -24,7 +24,7 @@ type Sealer struct{ aead cipher.AEAD }
 
 func NewSealer(key []byte) (*Sealer, error) {
 	if len(key) != 32 {
-		return nil, errors.New("master key must be 32 bytes (base64-encoded in PRAVAHA_MASTER_KEY)")
+		return nil, errors.New("master key must be 32 bytes (base64-encoded in SRUSTIOPS_MASTER_KEY)")
 	}
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -71,13 +71,13 @@ func (s *Sealer) Open(sealed, aad []byte) ([]byte, error) {
 	return pt, nil
 }
 
-// NewToken returns a random bearer token with a readable prefix, e.g. "pvh_u_…".
+// NewToken returns a random bearer token with a readable prefix, e.g. "sop_u_…".
 func NewToken(prefix string) (string, error) {
 	b := make([]byte, 32)
 	if _, err := io.ReadFull(rand.Reader, b); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("pvh_%s_%s", prefix, base64.RawURLEncoding.EncodeToString(b)), nil
+	return fmt.Sprintf("sop_%s_%s", prefix, base64.RawURLEncoding.EncodeToString(b)), nil
 }
 
 // HashToken is what gets stored; the token itself is shown once and never kept.

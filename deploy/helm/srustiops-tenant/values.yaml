@@ -1,0 +1,191 @@
+image:
+  server: ghcr.io/itspavanfeed/srustiops-server
+  runner: ghcr.io/itspavanfeed/srustiops-runner
+  tag: "0.4.0"
+  pullPolicy: IfNotPresent
+
+# The tenant slug, exactly as onboarded in the central plane.
+tenant: acme
+# URL runners and clouds reach this tenant plane at. It is the OIDC issuer the tenant's clouds trust.
+publicURL: https://srustiops.acme.internal
+
+# Self-service install: the one-time install token from the console (Platform → tenant → Connect).
+# A pre-install Job runs `srustiops bootstrap`: it makes every key in this namespace (master key,
+# runner state key and token, the API's TLS key) and gets the API certificate, the CAs to trust and
+# the link enrolment from the gateway. tls, central.clientCASecret, the master key and the runner
+# Secret then come from it; only existingSecret's database-url is still yours to provide.
+install:
+  # Pass the token as a file so it stays out of shell history:
+  #   printf '%s' 'sop_i_…' > install.token
+  #   helm install … --set-file install.token=install.token && rm install.token
+  token: ""
+  # GitOps (Argo CD, Flux): name a Secret with key "token" instead, so the
+  # token never sits in a Git repository.
+  existingSecret: ""
+
+# How the central plane reaches this tenant plane:
+#   tunnel: the link agent below dials out to central's gateway on 443 and keeps the tunnel open.
+#           Nothing dials in: no ingress, public endpoint or peering. Works across clouds and air-gapped.
+#   direct: central calls publicURL over mTLS (same network, VPC peering or a private endpoint).
+connectivity: tunnel
+
+link:
+  gatewayURL: https://link.srustiops.example.com   # central's tenant link gateway (SRUSTIOPS_LINK_PUBLIC_URL there)
+  # Secret with ca.crt pinning the gateway's certificate. Empty: the system trust store.
+  serverCASecret: ""
+  # Secret with key "token": the one-time enrolment token from central (Platform → tenant → Enrol).
+  # Only read until the first certificate is stored; the agent renews its 24-hour certificate itself.
+  enrollTokenSecret: srustiops-link-enroll
+  connections: 2
+  # The agent keeps its key and certificate here. Survives restarts, so no new token is needed.
+  stateSize: 64Mi
+  storageClass: ""
+  # Outbound HTTPS proxy, if the cluster reaches the internet only through one.
+  httpsProxy: ""
+  # Relay the tenant's own sign-in (its identity provider's token and key
+  # endpoints) over the link, for clusters with no other way out. Central
+  # allows only the provider's hosts.
+  egressRelay: false
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { memory: 128Mi }
+
+# Annotations for the tenant plane's ServiceAccount: workload identity for its bucket, KMS and the
+# secrets-store CSI driver (eks.amazonaws.com/role-arn, iam.gke.io/gcp-service-account, azure.workload.identity/client-id).
+serviceAccountAnnotations: {}
+podLabels: {}
+
+# The master key seals this tenant's secrets and signing keys.
+#   secret: key "master-key" in existingSecret
+#   csi:    read from the cloud's secret store through the secrets-store CSI driver
+#           (AWS Secrets Manager, GCP Secret Manager, Azure Key Vault), mounted as "master-key"
+masterKey:
+  source: secret
+  secretProviderClass: ""
+
+central:
+  url: https://srustiops.example.com     # where to fetch central's signing keys
+  issuer: ""                           # if central signs with a different URL than url
+  # Secret with ca.crt: the CA that issued central's client certificate (only it may call the user API).
+  clientCASecret: srustiops-central-client-ca
+  # Namespaces/pods allowed to reach the tenant API (central's network). Used by the NetworkPolicy.
+  ingressFrom:
+    - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: srustiops-central } }
+
+# Existing Secret with keys: database-url, master-key. Optional: bucket-access-key, bucket-secret-key, assistant-api-key.
+existingSecret: srustiops-tenant
+
+tls:
+  secretName: srustiops-tenant-tls
+  certManager:
+    enabled: false
+    issuerRef: { kind: ClusterIssuer, name: srustiops-ca }
+    dnsNames: [srustiops.acme.internal]
+
+bucket:
+  url: ""        # s3://bucket[/prefix]?endpoint=https://...&region=... | gs://bucket[/prefix] | azblob://account/container[/prefix]
+  # keys: bucket-access-key and bucket-secret-key from the Secret (S3-compatible stores).
+  # workload: the pod's identity (EKS IRSA, GKE Workload Identity, Entra Workload ID); no keys are stored.
+  credentials: keys
+
+# The assistant sends questions and retrieved passages to the Anthropic API (or baseURL).
+assistant:
+  enabled: false   # needs assistant-api-key in existingSecret
+  model: claude-opus-5-5
+  effort: medium
+  baseURL: ""
+
+temporal:
+  address: ""    # e.g. temporal-frontend.temporal:7233
+  namespace: default
+
+replicas: 2
+
+runner:
+  enabled: true
+  replicas: 2
+  pool: default
+  concurrency: 2   # runs per runner at once, each in its own work and temp directories
+  # Existing Secret with keys: runner-token (sop_r_...), state-key (32+ chars, shared by the pool).
+  existingSecret: srustiops-runner
+  # Annotations for the runner's ServiceAccount: workload identity for "ambient" connections, e.g.
+  # eks.amazonaws.com/role-arn, iam.gke.io/gcp-service-account, azure.workload.identity/client-id.
+  serviceAccountAnnotations: {}
+  podLabels: {}
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { memory: 4Gi }
+  tmpSize: 4Gi
+  # Scale runners on the run queue with KEDA (https://keda.sh, installed separately): one runner
+  # per queuePerRunner queued runs in this pool, between minReplicas and maxReplicas. Needs
+  # metrics.enabled and a Prometheus that scrapes it. replicas above is then only the start.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 10
+    queuePerRunner: 2
+    prometheusAddress: http://prometheus-server.monitoring.svc  # where KEDA queries Prometheus
+  bundleCacheMB: 1024   # module release bundles kept on the runner (inside tmpSize)
+
+# Module release bundles: cached in memory and on a local volume.
+bundleCache:
+  memoryMB: 256
+  diskMB: 2048
+  volumeSize: 3Gi
+
+# Optional private mirror of registry.opentofu.org for module release builds.
+registryURL: ""
+
+# Air-gapped tenants: nothing is downloaded from the internet. Build both mirrors on a connected
+# machine (srustiops modules mirror, srustiops providers mirror), copy each into a PersistentVolumeClaim,
+# and name the claims here.
+airgap:
+  moduleMirror:
+    existingClaim: ""   # signed module packages; module releases vendor from here instead of the registry
+    publicKey: ""       # base64 Ed25519 key the mirror index is signed with (the .pub from srustiops modules mirror)
+  providerMirror:
+    existingClaim: ""   # OpenTofu filesystem mirror of the pinned providers; runners install only from here
+
+# Admission policy (Kyverno): only images signed with this cosign public key may run in the namespace.
+imageVerification:
+  enabled: false
+  publicKey: ""         # PEM, from: cosign generate-key-pair
+  images: ["*/srustiops-*"]
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { memory: 512Mi }
+
+networkPolicy:
+  enabled: true
+  # Deny all egress except DNS and the destinations listed (the gateway, PostgreSQL, Temporal, KMS and
+  # the cloud API endpoints runners call). Pods without a matching rule cannot reach anything.
+  egress:
+    enabled: false
+    to: []
+    # - to: [{ ipBlock: { cidr: 10.20.0.0/16 } }]          # private endpoints, database
+    #   ports: [{ port: 443 }, { port: 5432 }]
+
+# Extra /etc/hosts entries for every pod, for names the cluster DNS does not
+# know. Local minikube reaching a gateway on this machine:
+#   hostAliases: [{ ip: 192.168.65.254, hostnames: [host.minikube.internal] }]
+# (the IP: minikube ssh -- grep host.minikube.internal /etc/hosts)
+hostAliases: []
+
+# Prometheus metrics on a separate port of the tenant plane and runners (/metrics): requests,
+# run queue depth per pool (srustiops_runs_queued), runner freshness, live streams, run times.
+metrics:
+  enabled: false
+  port: 9090
+  # Pods that may scrape it when network policies are on (e.g. your Prometheus namespace).
+  scrapeFrom:
+    - namespaceSelector:
+        matchLabels: { kubernetes.io/metadata.name: monitoring }
+
+# Fleet upgrades: the updater applies the version central's staged rollouts
+# (Platform → Fleet) give this workspace, with no downtime (2+ replicas,
+# maxUnavailable 0). When the release is also managed by Helm or GitOps, set
+# image.tag there too after a rollout, or the next sync puts the old tag back.
+updater:
+  enabled: false
+  every: 1m

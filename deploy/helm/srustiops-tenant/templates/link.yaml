@@ -1,0 +1,91 @@
+# The tenant link agent: dials out to central's gateway and keeps the link
+# open. Tunnel tenants: API streams go to the tenant API only (a fixed
+# target). Direct tenants: control traffic only (health, version, clock,
+# certificate renewal, link events); central calls the API directly.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Release.Name }}-link-state
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.link.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources: { requests: { storage: {{ .Values.link.stateSize }} } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-link
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+    app.kubernetes.io/name: srustiops-link
+spec:
+  replicas: 1 # one agent keeps several tunnels (link.connections); its state volume is single-writer
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app.kubernetes.io/name: srustiops-link, app.kubernetes.io/instance: {{ .Release.Name }} }
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: srustiops-link, app.kubernetes.io/instance: {{ .Release.Name }} }
+    spec:
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, fsGroup: 65532, seccompProfile: { type: RuntimeDefault } }
+      {{- with .Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: link
+          image: "{{ .Values.image.server }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["link"]
+          env:
+            - { name: SRUSTIOPS_TENANT, value: {{ .Values.tenant | quote }} }
+            - { name: SRUSTIOPS_LINK_URL, value: {{ .Values.link.gatewayURL | quote }} }
+            - { name: SRUSTIOPS_LINK_TARGET, value: "{{ include "tenant.name" . }}:443" }
+            - { name: SRUSTIOPS_LINK_STATE_DIR, value: /state }
+            - { name: SRUSTIOPS_LINK_CONNECTIONS, value: {{ .Values.link.connections | quote }} }
+            - { name: SRUSTIOPS_LINK_MODE, value: {{ include "srustiops.linkMode" . }} }
+            {{- if .Values.link.egressRelay }}
+            - { name: SRUSTIOPS_LINK_EGRESS_LISTEN, value: ":3128" }
+            {{- end }}
+            - { name: SRUSTIOPS_LINK_ENROLL_TOKEN_FILE, value: /enroll/token }
+            {{- if .Values.link.serverCASecret }}
+            - { name: SRUSTIOPS_LINK_SERVER_CA, value: /gateway-ca/ca.crt }
+            {{- end }}
+            {{- with .Values.link.httpsProxy }}
+            - { name: HTTPS_PROXY, value: {{ . | quote }} }
+            {{- end }}
+          {{- if .Values.link.egressRelay }}
+          ports: [{ name: egress, containerPort: 3128 }]
+          {{- end }}
+          securityContext: {{- include "srustiops.securityContext" . | nindent 12 }}
+          resources: {{- toYaml .Values.link.resources | nindent 12 }}
+          volumeMounts:
+            - { name: state, mountPath: /state }
+            - { name: enroll, mountPath: /enroll, readOnly: true }
+            {{- if .Values.link.serverCASecret }}
+            - { name: gateway-ca, mountPath: /gateway-ca, readOnly: true }
+            {{- end }}
+      volumes:
+        - name: state
+          persistentVolumeClaim: { claimName: {{ .Release.Name }}-link-state }
+        # Optional: once enrolled the agent no longer needs the token, and the Secret can be deleted.
+        - name: enroll
+          secret: { secretName: {{ include "srustiops.enrollSecret" . }}, optional: true, defaultMode: 0440 }
+        {{- if .Values.link.serverCASecret }}
+        - name: gateway-ca
+          secret: { secretName: {{ .Values.link.serverCASecret }}, defaultMode: 0444 }
+        {{- end }}
+{{- if .Values.link.egressRelay }}
+---
+# The egress relay, for the tenant plane's own sign-in only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-link
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+spec:
+  selector: { app.kubernetes.io/name: srustiops-link, app.kubernetes.io/instance: {{ .Release.Name }} }
+  ports: [{ name: egress, port: 3128, targetPort: egress }]
+{{- end }}

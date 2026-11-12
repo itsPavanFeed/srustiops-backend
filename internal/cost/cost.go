@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/policy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/policy"
 )
 
 const hours = 730.0

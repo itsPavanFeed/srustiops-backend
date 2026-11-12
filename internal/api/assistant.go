@@ -7,39 +7,85 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/assistant"
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/spec"
+	"github.com/itsPavanFeed/srustiops-backend/internal/assistant"
+	"github.com/itsPavanFeed/srustiops-backend/internal/spec"
 )
 
 const assistantTimeout = 5 * time.Minute
 
-// enableAssistant turns the assistant on when an API key is configured.
+// assistantState is the assistant in use and how it was configured.
+type assistantState struct {
+	a      *assistant.Assistant
+	model  string
+	source string // console | environment
+}
+
+// assistantConfig is the console's setting (Integrations → Assistant); the
+// API key is sealed. It takes precedence over SRUSTIOPS_ASSISTANT_*.
+type assistantConfig struct {
+	Enabled bool   `json:"enabled"`
+	APIKey  string `json:"api_key,omitempty"`
+	Model   string `json:"model"`
+	Effort  string `json:"effort"`
+}
+
+const assistantSetting = "assistant"
+
+func (s *Server) assistantSettings(ctx context.Context) (*assistantConfig, bool) {
+	b, ok := s.openSetting(ctx, assistantSetting, assistantSetting)
+	if !ok {
+		return nil, false
+	}
+	var c assistantConfig
+	return &c, json.Unmarshal(b, &c) == nil
+}
+
+// enableAssistant turns the assistant on (or off) from the console's
+// setting, else from the environment.
 func (s *Server) enableAssistant() error {
-	if s.cfg.AssistantAPIKey == "" {
+	ctx := context.Background()
+	key, model, effort, source := s.cfg.AssistantAPIKey, s.cfg.AssistantModel, s.cfg.AssistantEffort, "environment"
+	if c, ok := s.assistantSettings(ctx); ok {
+		source = "console"
+		key, model, effort = "", c.Model, c.Effort
+		if c.Enabled {
+			key = c.APIKey
+		}
+	}
+	if key == "" {
+		s.assistant.Store(nil)
 		return nil
 	}
-	extra, err := assistant.DirDocs(s.cfg.AssistantDocsDir)
-	if err != nil {
-		return fmt.Errorf("PRAVAHA_ASSISTANT_DOCS_DIR: %w", err)
+	if s.assistantExtra == nil {
+		extra, err := assistant.DirDocs(s.cfg.AssistantDocsDir)
+		if err != nil {
+			return fmt.Errorf("SRUSTIOPS_ASSISTANT_DOCS_DIR: %w", err)
+		}
+		s.assistantExtra = extra
 	}
-	s.assistantExtra = extra
+	if model == "" {
+		model = s.cfg.AssistantModel
+	}
+	if effort == "" {
+		effort = s.cfg.AssistantEffort
+	}
+	a := assistant.New(assistant.Config{APIKey: key, BaseURL: s.cfg.AssistantBaseURL, Model: model, Effort: effort, Fallbacks: s.cfg.AssistantFallbacks})
+	s.assistant.Store(&assistantState{a: a, model: model, source: source})
 	s.refreshAssistantDocs()
-	s.assistant = assistant.New(assistant.Config{
-		APIKey: s.cfg.AssistantAPIKey, BaseURL: s.cfg.AssistantBaseURL, Model: s.cfg.AssistantModel,
-		Effort: s.cfg.AssistantEffort, Fallbacks: s.cfg.AssistantFallbacks,
-	})
 	s.log.Info("assistant enabled: questions and retrieved passages are sent to the Anthropic API",
-		"model", s.cfg.AssistantModel, "passages", len(*s.assistantDocs.Load()))
+		"model", model, "source", source, "passages", len(*s.assistantDocs.Load()))
 	return nil
 }
 
 // refreshAssistantDocs rebuilds the static passages (catalog, guide,
 // runbooks); called again when a module release is deployed.
 func (s *Server) refreshAssistantDocs() {
-	if s.cfg.AssistantAPIKey == "" {
+	if s.assistant.Load() == nil {
 		return
 	}
 	docs := append(append(assistant.CatalogDocs(s.plat().cat), assistant.GuideDocs()...), s.assistantExtra...)
@@ -47,13 +93,99 @@ func (s *Server) refreshAssistantDocs() {
 }
 
 func (s *Server) assistantInfo(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, 200, map[string]any{"enabled": s.assistant != nil, "model": s.cfg.AssistantModel})
+	st := s.assistant.Load()
+	if st == nil {
+		writeJSON(w, 200, map[string]any{"enabled": false})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"enabled": true, "model": st.model})
+}
+
+// ---- Integrations → Assistant (tenant admins) ----
+
+var assistantModelRe = regexp.MustCompile(`^claude-[a-z0-9.-]{1,60}$`)
+
+func (s *Server) getAssistantIntegration(w http.ResponseWriter, r *http.Request) {
+	if !tenantAdmin(w, r) {
+		return
+	}
+	out := map[string]any{"enabled": false, "source": "none", "model": s.cfg.AssistantModel, "effort": s.cfg.AssistantEffort, "env_key": s.cfg.AssistantAPIKey != ""}
+	if st := s.assistant.Load(); st != nil {
+		out["enabled"], out["source"], out["model"] = true, st.source, st.model
+	}
+	if c, ok := s.assistantSettings(r.Context()); ok {
+		out["source"], out["key_set"], out["model"], out["effort"] = "console", c.APIKey != "", c.Model, c.Effort
+		out["enabled"] = c.Enabled && c.APIKey != ""
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) putAssistantIntegration(w http.ResponseWriter, r *http.Request) {
+	if !tenantAdmin(w, r) {
+		return
+	}
+	var b assistantConfig
+	if !decode(w, r, &b) {
+		return
+	}
+	cur, had := s.assistantSettings(r.Context())
+	if b.APIKey == "" && had {
+		b.APIKey = cur.APIKey
+	}
+	var probs []string
+	if b.Model == "" {
+		b.Model = s.cfg.AssistantModel
+	}
+	if !assistantModelRe.MatchString(b.Model) {
+		probs = append(probs, "model must be a Claude model id, e.g. claude-opus-5-5")
+	}
+	if b.Effort == "" {
+		b.Effort = "medium"
+	}
+	if !slices.Contains([]string{"low", "medium", "high", "xhigh", "max"}, b.Effort) {
+		probs = append(probs, "effort must be low, medium, high, xhigh or max")
+	}
+	if b.Enabled && (len(b.APIKey) < 20 || strings.ContainsAny(b.APIKey, " \n\t")) {
+		probs = append(probs, "an Anthropic API key is needed to turn the assistant on")
+	}
+	if len(probs) > 0 {
+		writeErr(w, 422, "invalid assistant settings", probs...)
+		return
+	}
+	if s.dryRun(w, r) {
+		return
+	}
+	raw, _ := json.Marshal(b)
+	if err := s.sealSetting(r.Context(), assistantSetting, assistantSetting, raw, user(r).Subject); err != nil {
+		s.writeStoreErr(w, err, "")
+		return
+	}
+	if err := s.enableAssistant(); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	s.audit(r.Context(), user(r).Actor(), "integration.assistant.configure", "integration/assistant", "", map[string]any{"enabled": b.Enabled, "model": b.Model, "effort": b.Effort, "key_changed": !had || cur.APIKey != b.APIKey})
+	s.getAssistantIntegration(w, r)
+}
+
+func (s *Server) deleteAssistantIntegration(w http.ResponseWriter, r *http.Request) {
+	if !tenantAdmin(w, r) {
+		return
+	}
+	if s.dryRun(w, r) {
+		return
+	}
+	s.store.DeleteSetting(r.Context(), assistantSetting)
+	s.enableAssistant() // back to the environment's settings, if any
+	s.audit(r.Context(), user(r).Actor(), "integration.assistant.remove", "integration/assistant", "", nil)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // askAssistant streams newline-delimited JSON: {"type":"status"} events while
 // the assistant works, then one {"type":"answer"} or {"type":"error"}.
 func (s *Server) askAssistant(w http.ResponseWriter, r *http.Request) {
-	if s.assistant == nil {
+	st := s.assistant.Load()
+	if st == nil {
 		writeErr(w, http.StatusNotFound, assistant.ErrDisabled.Error())
 		return
 	}
@@ -95,7 +227,7 @@ func (s *Server) askAssistant(w http.ResponseWriter, r *http.Request) {
 	}
 	emit(map[string]string{"type": "status", "text": fmt.Sprintf("Searching %d passages", ix.Len())})
 
-	ans, err := s.assistant.Ask(ctx, assistant.Request{
+	ans, err := st.a.Ask(ctx, assistant.Request{
 		Question: b.Question, History: b.History, Index: ix, Environments: envs,
 		Validate: func(ctx context.Context, name, bu, envName string, raw json.RawMessage) []string {
 			return s.validateDraft(ctx, r, name, bu, envName, raw)

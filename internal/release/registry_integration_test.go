@@ -12,12 +12,12 @@ import (
 )
 
 // TestBuildRealModules builds a release from the sibling modules repository
-// against the real registry. It needs the network: PRAVAHA_REGISTRY_TESTS=1.
+// against the real registry. It needs the network: SRUSTIOPS_REGISTRY_TESTS=1.
 func TestBuildRealModules(t *testing.T) {
-	if os.Getenv("PRAVAHA_REGISTRY_TESTS") == "" {
-		t.Skip("set PRAVAHA_REGISTRY_TESTS=1 to build against registry.opentofu.org")
+	if os.Getenv("SRUSTIOPS_REGISTRY_TESTS") == "" {
+		t.Skip("set SRUSTIOPS_REGISTRY_TESTS=1 to build against registry.opentofu.org")
 	}
-	root := "../../../cloud-pravaha-modules"
+	root := "../../../srustiops-modules"
 	files := map[string][]byte{}
 	filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
@@ -44,12 +44,12 @@ func TestBuildRealModules(t *testing.T) {
 }
 
 // TestVendoredModulesWithTofu unpacks a real release and runs tofu init and
-// validate on modules loaded only from vendor/ (PRAVAHA_TOFU_TESTS=1).
+// validate on modules loaded only from vendor/ (SRUSTIOPS_TOFU_TESTS=1).
 func TestVendoredModulesWithTofu(t *testing.T) {
-	if os.Getenv("PRAVAHA_TOFU_TESTS") == "" {
-		t.Skip("set PRAVAHA_TOFU_TESTS=1 (needs tofu and the network)")
+	if os.Getenv("SRUSTIOPS_TOFU_TESTS") == "" {
+		t.Skip("set SRUSTIOPS_TOFU_TESTS=1 (needs tofu and the network)")
 	}
-	root := "../../../cloud-pravaha-modules"
+	root := "../../../srustiops-modules"
 	files := map[string][]byte{}
 	filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
 		if err == nil && !d.IsDir() {
@@ -111,4 +111,47 @@ func firstMatch(m map[string]string, prefix string) string {
 		}
 	}
 	return ""
+}
+
+// TestBuildFromMirror builds the same release offline, from a module mirror
+// (srustiops modules mirror): SRUSTIOPS_TEST_MIRROR=<dir> SRUSTIOPS_TEST_MIRROR_KEY=<base64 key>.
+func TestBuildFromMirror(t *testing.T) {
+	dir, key := os.Getenv("SRUSTIOPS_TEST_MIRROR"), os.Getenv("SRUSTIOPS_TEST_MIRROR_KEY")
+	if dir == "" {
+		t.Skip("set SRUSTIOPS_TEST_MIRROR and SRUSTIOPS_TEST_MIRROR_KEY to build from a module mirror")
+	}
+	pub, err := ParseMirrorKey(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := "../../../srustiops-modules"
+	files := map[string][]byte{}
+	filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && !strings.Contains(p, "/.git/") {
+			rel, _ := filepath.Rel(root, p)
+			if b, err := os.ReadFile(p); err == nil {
+				files[filepath.ToSlash(rel)] = b
+			}
+		}
+		return nil
+	})
+	res := BuildModules(context.Background(), ModulesInput{Files: files, Tenant: "acme", Revision: "offline", Fetch: &Mirror{Dir: dir, Key: pub}})
+	if !res.OK() {
+		for _, c := range res.Checks {
+			if !c.OK {
+				t.Errorf("%s: %s %v", c.Name, c.Detail, c.Errors)
+			}
+		}
+		t.FailNow()
+	}
+	n := 0
+	for k, p := range res.Manifest.Packages {
+		switch {
+		case strings.HasPrefix(p.Origin, "mirror: "):
+			n++
+		case !strings.HasPrefix(p.Origin, "first-party"): // first-party modules travel with the catalog
+			t.Errorf("%s came from %s, not the mirror", k, p.Origin)
+		}
+	}
+	t.Logf("offline release built: %d packages from the mirror, bundle %s", n, res.SHA256[:12])
 }

@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/policy"
+	"github.com/itsPavanFeed/srustiops-backend/internal/policy"
 )
 
 func rc(typ string, actions ...string) policy.ResourceChange {

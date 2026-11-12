@@ -64,12 +64,14 @@ func Bearer(r *http.Request) string {
 	return ""
 }
 
+// ClientIP is the caller's address: the connection's, or, from a trusted
+// proxy (SetTrustedProxies), the client it forwarded for.
 func ClientIP(r *http.Request) string {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return r.RemoteAddr
 	}
-	return host
+	return forwardedFor(r, host)
 }
 
 // Limiter locks out client IPs after repeated authentication failures.

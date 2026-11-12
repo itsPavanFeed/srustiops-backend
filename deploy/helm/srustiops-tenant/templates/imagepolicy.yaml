@@ -1,0 +1,26 @@
+{{- if .Values.imageVerification.enabled }}
+# Kyverno: only images signed with the release key run here. Verification is
+# offline (key-based), so it works in air-gapped clusters.
+apiVersion: kyverno.io/v1
+kind: Policy
+metadata:
+  name: {{ .Release.Name }}-signed-images
+  labels: {{- include "tenant.labels" . | nindent 4 }}
+spec:
+  validationFailureAction: Enforce
+  webhookTimeoutSeconds: 15
+  rules:
+    - name: srustiops-images-are-signed
+      match:
+        any: [{ resources: { kinds: [Pod] } }]
+      verifyImages:
+        - imageReferences: {{- toYaml .Values.imageVerification.images | nindent 12 }}
+          mutateDigest: true
+          verifyDigest: true
+          attestors:
+            - entries:
+                - keys:
+                    publicKeys: {{- .Values.imageVerification.publicKey | toYaml | nindent 22 }}
+                    rekor: { ignoreTlog: true }
+                    ctlog: { ignoreSCT: true }
+{{- end }}

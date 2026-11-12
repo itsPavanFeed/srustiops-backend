@@ -1,0 +1,75 @@
+image:
+  repository: ghcr.io/itspavanfeed/srustiops-server
+  tag: "0.4.0"
+  pullPolicy: IfNotPresent
+
+replicas: 2
+
+# URL users reach the central plane at; also the issuer of tenant assertions.
+publicURL: https://srustiops.example.com
+
+# Existing Secret with keys: database-url, master-key (32 random bytes, base64).
+# Optional keys: oidc-client-secret.
+existingSecret: srustiops-central
+
+tls:
+  # Secret (kubernetes.io/tls) with the server certificate. Created by cert-manager when enabled.
+  secretName: srustiops-central-tls
+  # Secret with central's mTLS client certificate (tls.crt, tls.key), presented to tenant planes.
+  clientSecretName: srustiops-central-client
+  certManager:
+    enabled: false
+    issuerRef: { kind: ClusterIssuer, name: srustiops-ca }
+    dnsNames: [srustiops.example.com]
+
+sso:
+  issuer: ""          # e.g. https://acme.okta.com
+  clientID: ""
+  allowedDomains: ""  # e.g. acme.com
+  trustUnverifiedEmail: false
+  label: Sign in with SSO
+
+# Load balancers or ingress controllers in front of central (CIDRs, comma-separated), e.g.
+# "10.0.0.0/8". Their X-Forwarded-For is believed, so rate limits and sign-in lockouts see each
+# client's own address instead of the proxy's. Leave empty when clients connect directly.
+# The limits themselves are set in the console: Platform → Rate limits.
+trustedProxies: ""
+
+# Prometheus metrics on a separate port (/metrics): requests by status, rate-limited requests by
+# scope, workspaces online, in-flight requests and tunnels per workspace, replicas, cache hits.
+metrics:
+  enabled: false
+  port: 9090
+
+service:
+  type: ClusterIP
+  port: 443
+
+# The tenant link gateway: tenants that cannot be reached directly (other clouds, no peering,
+# air-gapped) run the link agent, which dials out to here. Expose it with a TCP (layer 4) load
+# balancer that passes TLS through: agents authenticate with client certificates.
+link:
+  enabled: true
+  publicURL: https://link.srustiops.example.com   # what agents dial (given out with enrolment tokens)
+  # Secret (kubernetes.io/tls) with the gateway's certificate for the publicURL host; ca.crt is
+  # pinned by agents and trusted by replicas relaying to each other.
+  tlsSecretName: srustiops-link-tls
+  service:
+    type: LoadBalancer
+    port: 443
+    annotations: {}   # e.g. service.beta.kubernetes.io/aws-load-balancer-type: nlb
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: srustiops.example.com
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { memory: 512Mi }
+
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

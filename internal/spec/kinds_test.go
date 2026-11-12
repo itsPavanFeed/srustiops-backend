@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/catalog"
+	"github.com/itsPavanFeed/srustiops-backend/internal/catalog"
 )
 
 func kindCatalog(t *testing.T) *catalog.Catalog {
@@ -100,7 +100,7 @@ func TestSecretReferences(t *testing.T) {
 	if _, err := st.Generate(cat, in); err == nil || !strings.Contains(err.Error(), "secret store") {
 		t.Fatalf("secrets without a configured store: %v", err)
 	}
-	in.Vault = &Vault{Address: "https://bao.acme.internal:8200", Role: "pravaha"}
+	in.Vault = &Vault{Address: "https://bao.acme.internal:8200", Role: "srustiops"}
 	g, err := st.Generate(cat, in)
 	if err != nil {
 		t.Fatal(err)
@@ -117,7 +117,7 @@ func TestSecretReferences(t *testing.T) {
 		t.Fatalf("password = %s", pw)
 	}
 	login := block(t, cfg, "provider vault", "auth_login_jwt")
-	if login["jwt"] != `file(".pravaha/vault-token")` || login["role"] != `"pravaha"` || login["mount"] != `"jwt"` {
+	if login["jwt"] != `file(".srustiops/vault-token")` || login["role"] != `"srustiops"` || login["mount"] != `"jwt"` {
 		t.Fatalf("vault login = %v", login)
 	}
 	for name, bad := range map[string]string{
@@ -156,11 +156,11 @@ func TestRendererEscapesTemplates(t *testing.T) {
 }
 
 func TestRealTenantDefaults(t *testing.T) {
-	cat, err := catalog.Load("../../../cloud-pravaha-modules/catalog")
+	cat, err := catalog.Load("../../../srustiops-modules/catalog")
 	if err != nil {
 		t.Skipf("modules repo not available: %v", err)
 	}
-	ov, err := catalog.LoadOverlay(os.DirFS("../../../cloud-pravaha-modules"), "tenants/acme", "acme", cat)
+	ov, err := catalog.LoadOverlay(os.DirFS("../../../srustiops-modules"), "tenants/acme", "acme", cat)
 	if err != nil {
 		t.Fatal(err)
 	}

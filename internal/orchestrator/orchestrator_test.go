@@ -70,3 +70,24 @@ func TestRunLifecycle(t *testing.T) {
 		t.Fatalf("terminal plans must not expire: %v", fs.expired)
 	}
 }
+
+// Signals carry the run's status, and the result says what happened in words;
+// workflows started before still accept the bare booleans they were sent.
+func TestReadableSignals(t *testing.T) {
+	no := false
+	res, _ := run(t, func(env *testsuite.TestWorkflowEnvironment) {
+		env.RegisterDelayedCallback(func() { env.SignalWorkflow(SignalPlanned, Signal{Status: "no_changes", AwaitingApproval: &no}) }, time.Minute)
+	})
+	if res != "plan finished: no changes" {
+		t.Fatalf("no-change plan result: %q", res)
+	}
+	yes := true
+	res, _ = run(t, func(env *testsuite.TestWorkflowEnvironment) {
+		env.RegisterDelayedCallback(func() { env.SignalWorkflow(SignalPlanned, Signal{Status: "planned", AwaitingApproval: &yes}) }, time.Minute)
+		env.RegisterDelayedCallback(func() { env.SignalWorkflow(SignalApproved, Signal{Status: "apply_queued"}) }, 2*time.Minute)
+		env.RegisterDelayedCallback(func() { env.SignalWorkflow(SignalFinished, Signal{Status: "applied"}) }, 3*time.Minute)
+	})
+	if res != "applied" {
+		t.Fatalf("applied run result: %q", res)
+	}
+}

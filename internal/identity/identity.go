@@ -31,7 +31,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/itsPavanFeed/cloud-pravaha-backend/internal/oidc"
+	"github.com/itsPavanFeed/srustiops-backend/internal/oidc"
 )
 
 const (
@@ -69,6 +69,25 @@ type Principal struct {
 	BUEntity    map[string]string   `json:"bu_entity"`    // every BU of the tenant -> its entity
 	// PlatformAdmin is set by central for platform admins acting in any tenant.
 	PlatformAdmin bool `json:"platform_admin,omitempty"`
+
+	// How the person signed in, so a tenant can apply its own sign-in policy:
+	// the identity provider ("tenant:<slug>" for the tenant's own, "oidc",
+	// "google", "github" or "token"), when, with which methods (amr), the
+	// provider's groups, and the session the tenant itself issued after
+	// verifying its provider's ID token.
+	IDP string `json:"idp,omitempty"`
+	// UserIssuer and UserSubject identify the person at the provider they
+	// signed in with; tenants key grants on them, never on email alone.
+	UserIssuer    string   `json:"uiss,omitempty"`
+	UserSubject   string   `json:"usub,omitempty"`
+	EmailVerified bool     `json:"ev,omitempty"`
+	AuthTime      int64    `json:"auth_time,omitempty"`
+	AMR           []string `json:"amr,omitempty"`
+	Groups        []string `json:"groups,omitempty"`
+	TenantSession string   `json:"tsid,omitempty"`
+	// Support is set by the tenant when access comes from an approved support
+	// access grant; audit records mark it.
+	Support bool `json:"-"`
 }
 
 // platformImplied are the tenant roles a platform admin holds everywhere.
@@ -95,6 +114,12 @@ func (p *Principal) HasTenantRole(roles ...string) bool {
 func (p *Principal) FullControl() bool {
 	return contains(p.TenantRoles, TenantAdmin) || contains(p.TenantRoles, DevOps)
 }
+
+// ManagesTenant: full control, or a platform admin acting in the tenant.
+// It gates managing integrations, connections and scans; signing approvals
+// and deciding changes stay with FullControl, so a platform admin never
+// approves.
+func (p *Principal) ManagesTenant() bool { return p.PlatformAdmin || p.FullControl() }
 
 // HasBURole checks effective roles in a business unit.
 func (p *Principal) HasBURole(bu string, roles ...string) bool {
@@ -210,6 +235,9 @@ func (p *Principal) WritableBUs(entity string) []string {
 // Actor is how audit records name the caller; platform admins are marked so
 // their actions inside tenants stand out.
 func (p *Principal) Actor() string {
+	if p.Support {
+		return "support:" + p.Subject
+	}
 	if p.PlatformAdmin {
 		return "platform-admin:" + p.Subject
 	}
@@ -243,7 +271,7 @@ func (p *Principal) CanApprove(step, bu string) bool {
 // ---- assertions: central -> tenant ----
 
 // Audience is the aud claim for assertions meant for one tenant plane.
-func Audience(tenant string) string { return "pravaha-tenant:" + tenant }
+func Audience(tenant string) string { return "srustiops-tenant:" + tenant }
 
 // AssertionTTL is short: an assertion authorises one proxied request.
 const AssertionTTL = 60 * time.Second
@@ -268,6 +296,14 @@ func SignAssertion(iss *oidc.Issuer, p *Principal, method, path string, now time
 		"bu_roles":       p.BURoles,
 		"bu_entity":      p.BUEntity,
 		"platform_admin": p.PlatformAdmin,
+		"idp":            p.IDP,
+		"uiss":           p.UserIssuer,
+		"usub":           p.UserSubject,
+		"ev":             p.EmailVerified,
+		"auth_time":      p.AuthTime,
+		"amr":            p.AMR,
+		"groups":         p.Groups,
+		"tsid":           p.TenantSession,
 		"req":            method + " " + path,
 	})
 }
@@ -277,7 +313,10 @@ type AssertionVerifier struct {
 	Tenant   string
 	verifier *oidc.Verifier
 	mu       sync.Mutex
-	seen     map[string]time.Time // jti replay cache
+	seen     map[string]time.Time // jti replay cache (this process)
+	// Seen, when set, records an assertion ID in a store every replica
+	// shares and reports whether it was already there (a replay elsewhere).
+	Seen func(jti string, expires time.Time) (bool, error)
 }
 
 func NewAssertionVerifier(tenant string, v *oidc.Verifier) *AssertionVerifier {
@@ -321,7 +360,18 @@ func (a *AssertionVerifier) Verify(tok, method, path string, now time.Time) (*Pr
 		return nil, errors.New("assertion replayed")
 	}
 	a.seen[jti] = now
+	seen := a.Seen
 	a.mu.Unlock()
+	if seen != nil {
+		exp, _ := c["exp"].(float64)
+		dup, err := seen(jti, time.Unix(int64(exp), 0).Add(AssertionTTL))
+		if err != nil {
+			return nil, fmt.Errorf("checking the replay cache: %w", err)
+		}
+		if dup {
+			return nil, errors.New("assertion replayed")
+		}
+	}
 
 	p := &Principal{Tenant: a.Tenant, EntityRoles: map[string][]string{}, BURoles: map[string][]string{}, BUEntity: map[string]string{}}
 	p.Subject, _ = c["sub"].(string)
@@ -329,6 +379,16 @@ func (a *AssertionVerifier) Verify(tok, method, path string, now time.Time) (*Pr
 		return nil, errors.New("assertion has no subject")
 	}
 	p.PlatformAdmin, _ = c["platform_admin"].(bool)
+	p.IDP, _ = c["idp"].(string)
+	p.UserIssuer, _ = c["uiss"].(string)
+	p.UserSubject, _ = c["usub"].(string)
+	p.EmailVerified, _ = c["ev"].(bool)
+	if at, ok := c["auth_time"].(float64); ok {
+		p.AuthTime = int64(at)
+	}
+	p.AMR = strs(c["amr"])
+	p.Groups = strs(c["groups"])
+	p.TenantSession, _ = c["tsid"].(string)
 	for _, r := range strs(c["tenant_roles"]) {
 		if IsTenantRole(r) {
 			p.TenantRoles = append(p.TenantRoles, r)
